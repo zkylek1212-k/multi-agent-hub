@@ -72,7 +72,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 | 檔案 | 內容 |
 | --- | --- |
 | [INSTALL.md](INSTALL.md) | 安裝與部署、工具清單、常見問題 |
-| [Multi-Agent ADE 派工架構.md](Multi-Agent%20ADE%20%E6%B4%BE%E5%B7%A5%E6%9E%B6%E6%A7%8B.md) | 架構原理、設計決策、實測驗證紀錄 |
+| [ARCHITECTURE.md](ARCHITECTURE.md) | 架構原理、設計決策、實測驗證紀錄 |
 | [MASTER_SOP.md](MASTER_SOP.md) | Master 的系統指示詞（`install.ps1` 會複製成 `CLAUDE.md`） |
 
 ## License

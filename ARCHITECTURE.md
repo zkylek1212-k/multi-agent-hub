@@ -141,7 +141,7 @@ stdio 傳輸沒有 60 秒的 per-request 上限，所以 `HUB_WAIT_SLICE` 可以
   HUB_LOG_DIR        log 目錄，預設 .hub_logs
   HUB_WAIT_SLICE     wait_for_job 單次等待秒數，預設 45
 
-完整說明見 Multi-Agent ADE 派工架構.md，部署見 INSTALL.md。
+完整說明見 ARCHITECTURE.md，部署見 INSTALL.md。
 """
 
 import asyncio
