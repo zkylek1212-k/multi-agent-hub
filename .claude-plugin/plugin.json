@@ -1,0 +1,8 @@
+{
+  "name": "multi-agent-hub",
+  "description": "MCP-based multi-agent dispatch hub: a Master agent decomposes a task, dispatches subtasks in parallel to multiple CLI workers (Claude Code, Codex, Antigravity, Ollama), and each worker runs isolated in its own git worktree. Results are verified in a Docker sandbox before being merged back to the main branch. Exposes tools to spawn jobs, poll progress, collect output and merge worktrees. Requires running install.ps1 once after install to set up the Python dependencies and detect the worker CLI executables on your machine.",
+  "version": "0.1.0",
+  "author": {
+    "name": "zkylek1212-k"
+  }
+}

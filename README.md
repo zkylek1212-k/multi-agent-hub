@@ -34,14 +34,51 @@ Worker 支援 Claude Code、Antigravity (`agy`)、Codex、Ollama —— 機器�
 
 ## 快速開始
 
-Windows，clone 完兩行：
+兩種安裝路徑，選一種。
+
+### (a) 當成 Claude Code plugin
+
+repo 根目錄有 `.claude-plugin/plugin.json` 與 plugin 版 `.mcp.json`，所以它同時是一個 Claude Code plugin：
+
+```
+/plugin marketplace add <這個 repo>
+/plugin install multi-agent-hub@<marketplace 名稱>
+```
+
+（`plugin install` 是從 marketplace 安裝的，來源 repo 需要提供 `.claude-plugin/marketplace.json`；
+本 repo 目前只帶 `plugin.json`，若你沒有自己的 marketplace，直接走路徑 (b)。）
+
+裝完**仍然要跑一次 `install.ps1`**：plugin 只帶進檔案與 MCP 設定，
+Python 相依（`mcp[cli]`）與本機 Worker CLI 偵測（`HUB_WORKERS` / `HUB_BIN_*`）得靠腳本處理。
+
+### (b) clone 後直接跑腳本
+
+Windows，clone 完一行：
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
-腳本會偵測工具、裝相依、產生 `.mcp.json`，最後跑一次自我測試。
+腳本會偵測工具、裝相依、產生 `.mcp.json`（偵測到 plugin 版的就保留不覆寫），最後跑一次自我測試。
+偵測不到 `docker` 時，它會用 winget **嘗試自動安裝 Docker Desktop**（會跳 UAC）；
+Python、git、Worker CLI 則只偵測不安裝。
+
 需要先裝什麼、macOS / Linux 做法、常見問題，都在 **[INSTALL.md](INSTALL.md)**。
+
+## MCP server 與 Skill
+
+本專案同時提供兩樣東西，缺一不可：
+
+| | 提供什麼 | 檔案 |
+| --- | --- | --- |
+| **MCP server**（`agent-hub`） | **能力**：派工、worktree、沙盒測試等 7 個工具 | `mcp_worker_hub.py` ＋ `.mcp.json` |
+| **Skill**（`multi-agent-dispatch`） | **指示**：派工 SOP —— 怎麼拆、怎麼平行派、怎麼驗證收斂 | `skills/multi-agent-dispatch/SKILL.md` |
+
+**MCP 給能力、Skill 給指示。** 只有 MCP，Master 拿得到工具卻不知道正確流程
+（很容易做完一個才派下一個、或跳過測試就宣稱完成）；只有 Skill，那就只是一份做不到的文件。
+
+Skill 隨 plugin 一起安裝，使用者提到平行派工／多 worker 分工時自動觸發；
+走路徑 (b) 的話，`install.ps1` 仍會把 `MASTER_SOP.md` 複製成 `CLAUDE.md`。
 
 ## 工具
 
@@ -74,6 +111,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 | [INSTALL.md](INSTALL.md) | 安裝與部署、工具清單、常見問題 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 架構原理、設計決策、實測驗證紀錄 |
 | [MASTER_SOP.md](MASTER_SOP.md) | Master 的系統指示詞（`install.ps1` 會複製成 `CLAUDE.md`） |
+| [skills/multi-agent-dispatch/SKILL.md](skills/multi-agent-dispatch/SKILL.md) | 派工 SOP 的 Skill 版，隨 plugin 安裝、按需觸發 |
 
 ## License
 

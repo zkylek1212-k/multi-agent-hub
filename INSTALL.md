@@ -21,7 +21,15 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 
 ## 1. 需要先裝什麼
 
-`install.ps1` **不會**幫你裝這些外部工具（它們各有自己的登入與授權流程），只會偵測並回報。
+`install.ps1` 對外部工具的處理分兩種，請先看清楚：
+
+- **Docker Desktop —— 會自動裝**。偵測不到 `docker` 時，腳本會呼叫
+  `winget install -e --id Docker.DockerDesktop --accept-package-agreements --accept-source-agreements --interactive`
+  嘗試自動安裝。過程會**跳出 UAC 提權視窗**與 Docker 自己的安裝畫面，裝完**可能需要重開機**
+  （至少要重開終端機）`docker` 才會出現在 PATH。不想被自動安裝，就先自己裝好 Docker；
+  機器上沒有 `winget` 時腳本只會警告並繼續。
+- **其他工具（Python、git、Worker CLI）—— 只偵測、不安裝**（它們各有自己的登入與授權流程）。
+  找不到 Python 3.10+ 或 git 會直接中止；一個 Worker CLI 都沒偵測到也會中止。
 
 ### 必裝
 
@@ -44,7 +52,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 
 | 工具 | 用途 | 取得方式 |
 | --- | --- | --- |
-| **Docker Desktop** | `run_in_sandbox` 的隔離測試環境 | <https://www.docker.com/products/docker-desktop/> |
+| **Docker Desktop** | `run_in_sandbox` 的隔離測試環境 | 沒裝的話 `install.ps1` 會用 winget 自動裝（跳 UAC，可能要重開機）；手動裝：<https://www.docker.com/products/docker-desktop/> |
 
 **沒有 Docker 會怎樣**：`run_in_sandbox` 回 `rc=127 找不到執行檔`。Master 的 SOP 第三階段有備援規則——改在 worktree 內直接跑測試（無隔離），並在回報中標明。**但絕不允許因此跳過測試**。
 
@@ -71,7 +79,8 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 4. 沒有 git repo 就 `git init` 並建立初始 commit（worktree 需要至少一個 commit）
 5. 寫 `.gitignore`
 6. 把 `MASTER_SOP.md` 複製成 `CLAUDE.md`
-7. 產生機器專屬的 `.mcp.json`
+7. 產生機器專屬的 `.mcp.json`。**若根目錄的 `.mcp.json` 內含 `${CLAUDE_PLUGIN_ROOT}`（＝plugin 版設定），
+   則保留原檔不覆寫**，改印出一行 `claude mcp add agent-hub -e ... -- ...` 讓你自行決定要不要另外加成專案級設定
 8. **自我測試**：跑 `test_hub.py` —— 匯入 hub、驗證 `list_jobs` 的狀態表、拒絕未啟用的 Worker、未知 job id 的處理
 
 第 8 步過了才算部署成功。
@@ -154,14 +163,16 @@ claude mcp list
 | `ARCHITECTURE.md` | ✅ | 架構、安全模型、實測紀錄 |
 | `README.md` | ✅ | GitHub 首頁 |
 | `LICENSE` | ✅ | MIT |
+| `.mcp.json` | ✅ | plugin 規格要求，用 `${CLAUDE_PLUGIN_ROOT}` 而非絕對路徑，所以可以進版控 |
+| `.claude-plugin/plugin.json` | ✅ | plugin manifest（名稱、版本、說明） |
+| `skills/multi-agent-dispatch/SKILL.md` | ✅ | 派工 SOP 的 Skill 版，隨 plugin 安裝 |
 | `CLAUDE.md` | ❌ | 由 SOP 複製而來，**故意不進版控** |
-| `.mcp.json` | ❌ | 機器專屬絕對路徑，**故意不進版控** |
 | `.hub_logs/` | ❌ | 每個 job 的完整 log 與 prompt 備份 |
 | `*.bak` | ❌ | 編輯器備份，不進版控 |
 
-**為什麼 `CLAUDE.md` 和 `.mcp.json` 不能進版控**：worktree 是本 repo 的 checkout。這兩個檔案一旦被追蹤，worker 端的 `claude` 會在 worktree 裡讀到 Master SOP、又從 `.mcp.json` 拿到 hub 的派工工具，於是誤以為自己是編排器並開始二次派工，遞迴分裂。維持未追蹤即可根治。
+**為什麼 `CLAUDE.md` 不能進版控**：worktree 是本 repo 的 checkout。`CLAUDE.md` 一旦被追蹤，worker 端的 `claude` 會在 worktree 裡讀到 Master SOP，誤以為自己是編排器並開始二次派工，遞迴分裂。維持未追蹤即可根治。
 
-（`mcp_worker_hub.py` 另外對 `claude_cli` 加了 `--strict-mcp-config` 作為第二道防線。）
+**那 `.mcp.json` 呢**：它現在因為 plugin 規格必須進版控，所以「worker 從 `.mcp.json` 撿到 hub 的派工工具」這條路改由另一道防線擋——`mcp_worker_hub.py` 的 `WORKER_CMDS` 對 `claude_cli` 固定帶 `--strict-mcp-config`，worker 就不會載入 worktree 裡的專案 `.mcp.json`，自然也拿不到 hub 的工具。（此旗標只對 `claude_cli` 有效；其餘 worker 不吃 Claude Code 的 `.mcp.json` 格式。）
 
 ---
 
@@ -189,6 +200,17 @@ npm 全域安裝只給 `.cmd` shim，走 cmd.exe 會竄改參數並有 8191 字�
 
 **Q：`claude mcp list` 看不到 agent-hub**
 `.mcp.json` 是**專案級**設定，必須在 repo 根目錄啟動 Claude Code 才會讀到。也確認 `.mcp.json` 沒有 BOM。
+
+**Q：用 plugin 裝好了，但 `/mcp` 看不到 agent-hub**
+依序查三件事：
+
+1. `/plugin` 確認 `multi-agent-hub` 是 enabled（裝完通常要重開 Claude Code）。
+2. plugin 版 `.mcp.json` 是用 `py -3` 啟動的。在終端機直接跑 `py -3 <plugin 目錄>/mcp_worker_hub.py`：
+   噴 `py` 不存在，代表機器上沒有 Windows Python launcher；噴 `ModuleNotFoundError: No module named 'mcp'`，
+   代表還沒跑過 `install.ps1`（plugin 不會幫你裝 Python 相依）。
+3. 連上了但 `get_active_workers` 是空的：plugin 版 `.mcp.json` 的 `HUB_WORKERS` 留空＝改由 hub 自己掃 PATH，
+   掃不到（或只掃到 npm 的 `.cmd` shim）時，就照 `install.ps1` 印出的 `claude mcp add ...` 那行補上
+   `HUB_WORKERS` 與 `HUB_BIN_*`。
 
 **Q：`git worktree add` 失敗說 repo 沒有 commit**
 `git add -A; git commit -m init`。通常是 git 還沒設身分：`git config --global user.name "..."`、`git config --global user.email "..."`。

@@ -183,10 +183,11 @@ try {
 
 # --- 5. .gitignore -----------------------------------------------------
 Step 5 "寫入 .gitignore"
-# CLAUDE.md 與 .mcp.json 必須維持未追蹤：worktree 是本 repo 的 checkout，
-# 一旦進版控，worker 端的 claude 會在 worktree 讀到 Master SOP、也拿到 hub 工具，
-# 於是誤以為自己是編排器並再次派工（遞迴分裂）。
-$want = @('.mcp.json', 'CLAUDE.md', '.hub_logs/', '.hub_prompt.md', 'wt-*/', 'NOTES.md', '__pycache__/')
+# CLAUDE.md 必須維持未追蹤：worktree 是本 repo 的 checkout，
+# 一旦進版控，worker 端的 claude 會在 worktree 讀到 Master SOP，
+# 誤以為自己是編排器並再次派工（遞迴分裂）。
+# 注意：.mcp.json 配合 plugin 規格需進版控，不再列入 .gitignore。
+$want = @('CLAUDE.md', '.hub_logs/', '.hub_prompt.md', 'wt-*/', 'NOTES.md', '__pycache__/', '*.bak')
 $gi = Join-Path $root '.gitignore'
 $existing = @()
 if (Test-Path -LiteralPath $gi) { $existing = @(Get-Content -LiteralPath $gi) }
@@ -223,28 +224,50 @@ $envMap = [ordered]@{
 }
 foreach ($k in ($bins.Keys | Sort-Object)) { $envMap[$k] = $bins[$k] }
 
+$hubPyPath = ($hubPy -replace '\\', '/')
 $hub = [ordered]@{
     command = $pyExe
-    args    = @($pyArgs + @($hubPy -replace '\\', '/'))
+    args    = @($pyArgs + @($hubPyPath))
     env     = $envMap
 }
 
 $cfgPath = Join-Path $root '.mcp.json'
-$servers = [ordered]@{}
+$isPluginConfig = $false
 if (Test-Path -LiteralPath $cfgPath) {
-    $old = Get-Content -LiteralPath $cfgPath -Raw | ConvertFrom-Json
-    if ($old.mcpServers) {
-        foreach ($p in $old.mcpServers.PSObject.Properties) {
-            if ($p.Name -ne 'agent-hub') { $servers[$p.Name] = $p.Value }
-        }
+    $rawContent = Get-Content -LiteralPath $cfgPath -Raw -ErrorAction SilentlyContinue
+    if ($rawContent -and $rawContent.Contains('${CLAUDE_PLUGIN_ROOT}')) {
+        $isPluginConfig = $true
     }
-    if ($servers.Count -gt 0) { OK "保留既有的 $($servers.Count) 個 MCP server" }
 }
-$servers['agent-hub'] = $hub
-$json = ConvertTo-Json ([ordered]@{ mcpServers = $servers }) -Depth 6
-# 不能有 BOM：JSON 解析器會把它當非法字元
-[IO.File]::WriteAllText($cfgPath, $json, (New-Object Text.UTF8Encoding $false))
-OK "已寫入 $cfgPath"
+
+if ($isPluginConfig) {
+    Warn "偵測到根目錄 .mcp.json 包含 `${CLAUDE_PLUGIN_ROOT}（Plugin 設定檔），保留原檔不覆寫。"
+    $envFlags = @()
+    foreach ($k in $envMap.Keys) {
+        $envFlags += "-e $k=`"$($envMap[$k])`""
+    }
+    $cmdParts = @($pyExe) + $pyArgs + @($hubPyPath)
+    $cmdStr = $cmdParts -join ' '
+    $mcpAddCmd = "claude mcp add agent-hub $($envFlags -join ' ') -- $cmdStr"
+    Warn "若要以專案級 MCP 使用，請改執行以下指令手動新增："
+    Write-Host "  $mcpAddCmd" -ForegroundColor White
+} else {
+    $servers = [ordered]@{}
+    if (Test-Path -LiteralPath $cfgPath) {
+        $old = Get-Content -LiteralPath $cfgPath -Raw | ConvertFrom-Json
+        if ($old.mcpServers) {
+            foreach ($p in $old.mcpServers.PSObject.Properties) {
+                if ($p.Name -ne 'agent-hub') { $servers[$p.Name] = $p.Value }
+            }
+        }
+        if ($servers.Count -gt 0) { OK "保留既有的 $($servers.Count) 個 MCP server" }
+    }
+    $servers['agent-hub'] = $hub
+    $json = ConvertTo-Json ([ordered]@{ mcpServers = $servers }) -Depth 6
+    # 不能有 BOM：JSON 解析器會把它當非法字元
+    [IO.File]::WriteAllText($cfgPath, $json, (New-Object Text.UTF8Encoding $false))
+    OK "已寫入 $cfgPath"
+}
 
 # --- 8. 煙霧測試 -------------------------------------------------------
 Step 8 "自我測試：匯入 hub、驗證工具行為與 Worker 解析"
