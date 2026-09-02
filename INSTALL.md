@@ -152,6 +152,8 @@ claude mcp list
 | `test_hub.py` | ✅ | 自我測試，`py -3 test_hub.py` 可單獨跑 |
 | `install.ps1` | ✅ | 部署腳本（**必須 UTF-8 with BOM**，見常見問題） |
 | `Multi-Agent ADE 派工架構.md` | ✅ | 架構、安全模型、實測紀錄 |
+| `README.md` | ✅ | GitHub 首頁 |
+| `LICENSE` | ✅ | MIT |
 | `CLAUDE.md` | ❌ | 由 SOP 複製而來，**故意不進版控** |
 | `.mcp.json` | ❌ | 機器專屬絕對路徑，**故意不進版控** |
 | `.hub_logs/` | ❌ | 每個 job 的完整 log 與 prompt 備份 |
