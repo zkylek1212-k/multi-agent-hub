@@ -1,0 +1,12 @@
+{
+  "name": "multi-agent-hub",
+  "owner": { "name": "zkylek1212-k" },
+  "plugins": [
+    {
+      "name": "multi-agent-hub",
+      "displayName": "Multi-Agent Hub",
+      "source": ".",
+      "description": "MCP-based multi-agent dispatch hub. A Master agent decomposes work, dispatches subtasks in parallel to CLI workers, isolates each worker in its own git worktree, and verifies results in a Docker sandbox before merging. Ships the agent-hub MCP server plus the multi-agent-dispatch skill. Run install.ps1 once after installing to set up Python dependencies and detect worker executables."
+    }
+  ]
+}
