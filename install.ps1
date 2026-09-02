@@ -128,14 +128,33 @@ foreach ($w in @('claude_cli', 'agy_cli', 'codex_cli', 'local_70b')) {
 }
 if ($active.Count -eq 0) { Die "一個 Worker 都沒偵測到。至少要裝一個，見 INSTALL.md 的工具清單。" }
 
-foreach ($t in @('git', 'docker')) {
-    $c = Get-Command $t -ErrorAction SilentlyContinue
-    if ($c) { OK "$t -> $($c.Source)" } else { Warn "$t 未安裝" }
-}
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+$c_git = Get-Command git -ErrorAction SilentlyContinue
+if ($c_git) { OK "git -> $($c_git.Source)" } else { Warn "git 未安裝" }
+if (-not $c_git) {
     Die "git 是必要條件（worktree 隔離靠它）。https://git-scm.com/download/win"
 }
-$hasDocker = [bool](Get-Command docker -ErrorAction SilentlyContinue)
+
+$c_docker = Get-Command docker -ErrorAction SilentlyContinue
+if ($c_docker) {
+    OK "docker -> $($c_docker.Source)"
+    $hasDocker = $true
+} else {
+    Warn "docker 未安裝，準備透過 winget 自動安裝 Docker Desktop..."
+    if (Get-Command winget -ErrorAction SilentlyContinue) {
+        # 直接執行以顯示進度條與處理 UAC 提權提示。加上 --interactive 讓安裝畫面強制顯示
+        winget install -e --id Docker.DockerDesktop --accept-package-agreements --accept-source-agreements --interactive
+        if ($LASTEXITCODE -eq 0 -or $LASTEXITCODE -eq 3010) {
+            OK "Docker Desktop 安裝完畢！(可能需要重開機或重新開啟終端機才能使用)"
+            $hasDocker = $true
+        } else {
+            Warn "winget 安裝 Docker Desktop 失敗。請手動安裝：https://www.docker.com/products/docker-desktop/"
+            $hasDocker = $false
+        }
+    } else {
+        Warn "找不到 winget 指令，無法自動安裝。請手動安裝：https://www.docker.com/products/docker-desktop/"
+        $hasDocker = $false
+    }
+}
 
 # --- 4. git repo -------------------------------------------------------
 Step 4 "確認 git repo（worktree 派工的前提）"
@@ -167,7 +186,7 @@ Step 5 "寫入 .gitignore"
 # CLAUDE.md 與 .mcp.json 必須維持未追蹤：worktree 是本 repo 的 checkout，
 # 一旦進版控，worker 端的 claude 會在 worktree 讀到 Master SOP、也拿到 hub 工具，
 # 於是誤以為自己是編排器並再次派工（遞迴分裂）。
-$want = @('.mcp.json', 'CLAUDE.md', '.hub_logs/', '.hub_prompt.md', 'wt-*/', 'NOTES.md')
+$want = @('.mcp.json', 'CLAUDE.md', '.hub_logs/', '.hub_prompt.md', 'wt-*/', 'NOTES.md', '__pycache__/')
 $gi = Join-Path $root '.gitignore'
 $existing = @()
 if (Test-Path -LiteralPath $gi) { $existing = @(Get-Content -LiteralPath $gi) }
@@ -228,15 +247,19 @@ $json = ConvertTo-Json ([ordered]@{ mcpServers = $servers }) -Depth 6
 OK "已寫入 $cfgPath"
 
 # --- 8. 煙霧測試 -------------------------------------------------------
-Step 8 "煙霧測試：實際匯入 hub，驗證套件與 Worker 解析"
+Step 8 "自我測試：匯入 hub、驗證工具行為與 Worker 解析"
 foreach ($k in $envMap.Keys) { Set-Item -Path "env:$k" -Value $envMap[$k] }
+$env:PYTHONIOENCODING = 'utf-8'   # 否則子行程用系統 ANSI 輸出，中文在主控台會亂碼
 
 Push-Location $root
 try {
-    $r = Invoke-Native { & $pyExe @pyArgs -c "import mcp_worker_hub as h; print('SMOKE ok active=' + ','.join(h.ACTIVE))" }
-    if ($r.Code -ne 0) { Write-Host $r.Out; Die "匯入 mcp_worker_hub 失敗，錯誤訊息如上。" }
+    $r = Invoke-Native { & $pyExe @pyArgs test_hub.py }
+    if ($r.Code -ne 0) { Write-Host $r.Out; Die "自我測試未通過，錯誤訊息如上。" }
+    # 2>&1 會把 stderr 包成 ErrorRecord，Out-String 連帶印出一堆 PS 追蹤裝飾，
+    # 這裡只留 hub 自己的兩種訊息。
     foreach ($line in ($r.Out -split "`r?`n")) {
-        if ($line.Trim()) { OK $line.Trim() }
+        $t = ($line.Trim() -replace '^\S+\.exe\s*:\s*', '')
+        if ($t -match '^(SMOKE|\[hub\]|\[\d+\])') { OK $t }
     }
 } finally { Pop-Location }
 
