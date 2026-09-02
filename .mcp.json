@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "agent-hub": {
+      "type": "stdio",
+      "command": "py",
+      "args": ["-3", "${CLAUDE_PLUGIN_ROOT}/mcp_worker_hub.py"],
+      "env": {
+        "HUB_WORKERS": "",
+        "HUB_LOG_DIR": "${CLAUDE_PLUGIN_ROOT}/.hub_logs",
+        "HUB_WAIT_SLICE": "300"
+      }
+    }
+  }
+}
