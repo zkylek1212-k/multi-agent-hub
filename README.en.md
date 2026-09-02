@@ -2,6 +2,15 @@
 
 [中文版 README](README.md)
 
+```mermaid
+flowchart TD
+    M["Master Agent<br/>(Claude Code / Desktop / Cursor)"] -->|MCP over stdio| H["mcp_worker_hub.py"]
+    H --> W1["Git Worktree<br/>(file isolation)"]
+    H --> W2["CLI Workers<br/>claude_cli / agy_cli / codex_cli / ollama"]
+    H --> W3["Docker Sandbox<br/>(runs tests, no network by default)"]
+```
+
+
 A pluggable multi-agent dispatch hub built on **MCP (Model Context Protocol)**.
 
 The Master Agent is responsible for **breaking down tasks, dispatching work in parallel, and validating results**. Actual coding is delegated to multiple CLI Workers, each operating in its **own git worktree**, and only merged back to the main branch after passing tests.
