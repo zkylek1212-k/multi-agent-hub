@@ -7,3 +7,4 @@ wt-*/
 NOTES.md
 __pycache__/
 *.bak
+.claude/settings.local.json

@@ -12,6 +12,11 @@
 .PARAMETER Force
     覆蓋既有的 CLAUDE.md。
 
+.PARAMETER DepsOnly
+    只做「裝相依 + 偵測 Worker + 自我測試」，不碰 git / .gitignore / CLAUDE.md / .mcp.json。
+    以 Claude Code plugin 安裝時用這個：plugin 目錄不是 git repo，也已自帶 .mcp.json 與 skill，
+    不加這個旗標會在 plugin 快取裡 git init，並多註冊一份 local scope 的 agent-hub（重複載入）。
+
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\install.ps1
 
@@ -22,7 +27,8 @@
 [CmdletBinding()]
 param(
     [switch]$SkipDeps,
-    [switch]$Force
+    [switch]$Force,
+    [switch]$DepsOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -156,6 +162,16 @@ if ($c_docker) {
     }
 }
 
+$envMap = [ordered]@{
+    HUB_WORKERS    = ($active -join ',')
+    HUB_LOG_DIR    = ((Join-Path $root '.hub_logs') -replace '\\', '/')
+    HUB_WAIT_SLICE = '300'
+}
+foreach ($k in ($bins.Keys | Sort-Object)) { $envMap[$k] = $bins[$k] }
+
+# 第 4~7 步只對「clone 下來當專案用」有意義。以 plugin 安裝時 -DepsOnly 全部跳過。
+if (-not $DepsOnly) {
+
 # --- 4. git repo -------------------------------------------------------
 Step 4 "確認 git repo（worktree 派工的前提）"
 Push-Location $root
@@ -187,7 +203,7 @@ Step 5 "寫入 .gitignore"
 # 一旦進版控，worker 端的 claude 會在 worktree 讀到 Master SOP，
 # 誤以為自己是編排器並再次派工（遞迴分裂）。
 # 注意：.mcp.json 配合 plugin 規格需進版控，不再列入 .gitignore。
-$want = @('CLAUDE.md', '.hub_logs/', '.hub_prompt.md', 'wt-*/', 'NOTES.md', '__pycache__/', '*.bak')
+$want = @('CLAUDE.md', '.hub_logs/', '.hub_prompt.md', 'wt-*/', 'NOTES.md', '__pycache__/', '*.bak', '.claude/settings.local.json')
 $gi = Join-Path $root '.gitignore'
 $existing = @()
 if (Test-Path -LiteralPath $gi) { $existing = @(Get-Content -LiteralPath $gi) }
@@ -217,13 +233,6 @@ Step 7 "產生 .mcp.json（Claude Code 專案級 MCP 設定）"
 $hubPy = Join-Path $root 'mcp_worker_hub.py'
 if (-not (Test-Path -LiteralPath $hubPy)) { Die "找不到 mcp_worker_hub.py，repo 不完整。" }
 
-$envMap = [ordered]@{
-    HUB_WORKERS    = ($active -join ',')
-    HUB_LOG_DIR    = ((Join-Path $root '.hub_logs') -replace '\\', '/')
-    HUB_WAIT_SLICE = '300'
-}
-foreach ($k in ($bins.Keys | Sort-Object)) { $envMap[$k] = $bins[$k] }
-
 $hubPyPath = ($hubPy -replace '\\', '/')
 $hub = [ordered]@{
     command = $pyExe
@@ -241,16 +250,39 @@ if (Test-Path -LiteralPath $cfgPath) {
 }
 
 if ($isPluginConfig) {
-    Warn "偵測到根目錄 .mcp.json 包含 `${CLAUDE_PLUGIN_ROOT}（Plugin 設定檔），保留原檔不覆寫。"
-    $envFlags = @()
-    foreach ($k in $envMap.Keys) {
-        $envFlags += "-e $k=`"$($envMap[$k])`""
+    # ${CLAUDE_PLUGIN_ROOT} 只有「以 plugin 安裝」時才會展開。直接把 repo 當專案開時，
+    # Claude Code 會把同一個檔案當專案級 MCP 讀進去、路徑不展開 → 啟動即 CONNECTION_CLOSED。
+    # 所以這裡不覆寫原檔，改成：用絕對路徑註冊到 local scope，再停用專案級那份。
+    Warn "根目錄 .mcp.json 是 Plugin 設定檔（含 `${CLAUDE_PLUGIN_ROOT}），保留不覆寫。"
+
+    $claudeExe = $bins['HUB_BIN_CLAUDE_CLI']
+    if (-not $claudeExe) {
+        $cc = Get-Command claude -ErrorAction SilentlyContinue
+        if ($cc) { $claudeExe = $cc.Source }
     }
-    $cmdParts = @($pyExe) + $pyArgs + @($hubPyPath)
-    $cmdStr = $cmdParts -join ' '
-    $mcpAddCmd = "claude mcp add agent-hub $($envFlags -join ' ') -- $cmdStr"
-    Warn "若要以專案級 MCP 使用，請改執行以下指令手動新增："
-    Write-Host "  $mcpAddCmd" -ForegroundColor White
+    if (-not $claudeExe) {
+        Warn "找不到 claude 執行檔，無法自動註冊 local scope，請手動跑 claude mcp add agent-hub -s local ..."
+    } else {
+        $addArgs = @('mcp', 'add', 'agent-hub', '-s', 'local')
+        foreach ($k in $envMap.Keys) { $addArgs += @('-e', "$k=$($envMap[$k])") }
+        $addArgs += @('--', $pyExe) + $pyArgs + @($hubPyPath)
+        Push-Location $root
+        try {
+            Invoke-Native { & $claudeExe mcp remove agent-hub -s local } | Out-Null
+            $r = Invoke-Native { & $claudeExe @addArgs }
+            if ($r.Code -eq 0) { OK "agent-hub 已註冊到 local scope（絕對路徑）" }
+            else { Write-Host $r.Out; Warn "claude mcp add 失敗，請照上面的錯誤手動註冊。" }
+        } finally { Pop-Location }
+    }
+
+    $lsDir = Join-Path $root '.claude'
+    if (-not (Test-Path -LiteralPath $lsDir)) { New-Item -ItemType Directory -Path $lsDir | Out-Null }
+    $lsPath = Join-Path $lsDir 'settings.local.json'
+    $ls = [pscustomobject]@{}
+    if (Test-Path -LiteralPath $lsPath) { $ls = Get-Content -LiteralPath $lsPath -Raw | ConvertFrom-Json }
+    $ls | Add-Member -NotePropertyName disabledMcpjsonServers -NotePropertyValue @('agent-hub') -Force
+    [IO.File]::WriteAllText($lsPath, ($ls | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding $false))
+    OK "已在 .claude/settings.local.json 停用專案級 agent-hub（避免重複載入而失敗）"
 } else {
     $servers = [ordered]@{}
     if (Test-Path -LiteralPath $cfgPath) {
@@ -267,6 +299,10 @@ if ($isPluginConfig) {
     # 不能有 BOM：JSON 解析器會把它當非法字元
     [IO.File]::WriteAllText($cfgPath, $json, (New-Object Text.UTF8Encoding $false))
     OK "已寫入 $cfgPath"
+}
+
+} else {
+    Step 4 "-DepsOnly：跳過 git / .gitignore / CLAUDE.md / .mcp.json（plugin 已自帶）"
 }
 
 # --- 8. 煙霧測試 -------------------------------------------------------
@@ -289,12 +325,20 @@ try {
 # --- 完成 --------------------------------------------------------------
 Write-Host "`n部署完成。" -ForegroundColor Green
 Write-Host "  啟用的 Worker : $($envMap.HUB_WORKERS)"
-Write-Host "  MCP 設定      : .mcp.json（Claude Code 專案級）"
-Write-Host "  Master SOP    : CLAUDE.md"
+if ($DepsOnly) {
+    Write-Host "  模式          : -DepsOnly（MCP 設定與 SOP 由 plugin 提供）"
+} else {
+    Write-Host "  MCP 設定      : .mcp.json（Claude Code 專案級）"
+    Write-Host "  Master SOP    : CLAUDE.md"
+}
 if (-not $hasDocker) {
     Write-Host "`n注意：本機沒有 Docker，run_in_sandbox 會回 rc=127。" -ForegroundColor Yellow
     Write-Host "      裝 Docker Desktop，或依 CLAUDE.md 的規定改在 worktree 內直接跑測試。" -ForegroundColor Yellow
 }
-Write-Host "`n下一步：在本目錄開啟 Claude Code，核准 agent-hub 這個 MCP server，然後："
+if ($DepsOnly) {
+    Write-Host "`n下一步：重開 Claude Code（plugin 的 agent-hub 會自動載入），然後："
+} else {
+    Write-Host "`n下一步：在本目錄開啟 Claude Code，核准 agent-hub 這個 MCP server，然後："
+}
 Write-Host "  /mcp                    # 確認 agent-hub 是 connected" -ForegroundColor White
 Write-Host "  請呼叫 get_active_workers" -ForegroundColor White

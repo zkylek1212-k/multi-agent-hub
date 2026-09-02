@@ -36,20 +36,34 @@ Worker 支援 Claude Code、Antigravity (`agy`)、Codex、Ollama —— 機器�
 
 兩種安裝路徑，選一種。
 
-### (a) 當成 Claude Code plugin
+### (a) 當成 Claude Code plugin（推薦，不必 clone）
 
-repo 根目錄有 `.claude-plugin/plugin.json` 與 plugin 版 `.mcp.json`，所以它同時是一個 Claude Code plugin：
+repo 自帶 `.claude-plugin/marketplace.json`，本身就是一個單一 plugin 的 marketplace：
 
+```powershell
+claude plugin marketplace add zkylek1212-k/multi-agent-hub
 ```
-/plugin marketplace add <這個 repo>
-/plugin install multi-agent-hub@<marketplace 名稱>
+
+```powershell
+claude plugin install multi-agent-hub@multi-agent-hub
 ```
 
-（`plugin install` 是從 marketplace 安裝的，來源 repo 需要提供 `.claude-plugin/marketplace.json`；
-本 repo 目前只帶 `plugin.json`，若你沒有自己的 marketplace，直接走路徑 (b)。）
+（在 Claude Code 對話中則是 `/plugin marketplace add ...` 與 `/plugin install ...`。）
 
-裝完**仍然要跑一次 `install.ps1`**：plugin 只帶進檔案與 MCP 設定，
-Python 相依（`mcp[cli]`）與本機 Worker CLI 偵測（`HUB_WORKERS` / `HUB_BIN_*`）得靠腳本處理。
+**第三步不能省**：plugin 只帶檔案與 MCP 設定，**不會裝 Python 相依**（`mcp[cli]`）。
+少了它 MCP server 起不來，`/mcp` 就看不到 `agent-hub`。裝完跑這行：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File (Get-ChildItem "$env:USERPROFILE\.claude\plugins\cache\multi-agent-hub\multi-agent-hub\*\install.ps1" | Sort-Object FullName -Descending | Select-Object -First 1).FullName -DepsOnly
+```
+
+`-DepsOnly` 只做「裝相依 + 偵測 Worker + 自我測試」，不會在 plugin 目錄裡 `git init`、
+也不會另外註冊一份 local scope 的 agent-hub（那會變成重複載入）。跑完重開 Claude Code。
+
+判斷成功：`/mcp` 看到 `agent-hub` 是 connected，且 skill 清單裡有 `multi-agent-dispatch`。
+
+> ⚠️ **plugin 路徑目前只支援 Windows** —— `.mcp.json` 用 `py -3`（Windows Python launcher）啟動。
+> macOS / Linux 請走下面的 (b)，並照 [INSTALL.md §3](INSTALL.md) 手動寫 `.mcp.json`。
 
 ### (b) clone 後直接跑腳本
 
