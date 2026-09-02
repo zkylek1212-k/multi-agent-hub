@@ -92,7 +92,7 @@ Worker 名單由 `HUB_WORKERS` 決定（留空 = 全部可用的都開）。
       "command": "py",
       "args": ["-3", "C:/path/to/mcp_worker_hub.py"],
       "env": {
-        "HUB_WORKERS": "claude_cli,agy_cli,local_70b",
+        "HUB_WORKERS": "claude_cli,agy_cli,ollama",
         "HUB_LOG_DIR": "C:/path/to/.hub_logs",
         "HUB_BIN_CLAUDE_CLI": "C:/Users/<you>/.local/bin/claude.exe",
         "HUB_WAIT_SLICE": "45"
@@ -165,7 +165,7 @@ except ModuleNotFoundError:
 # 慣例：接受 prompt 的旗標一律放在**最後**，避免它把後面的旗標當成自己的值。
 WORKER_CMDS = {
     # ollama：.exe，參數安全
-    "local_70b":  ["ollama", "run", "qwen2.5-coder:70b"],
+    "ollama":  ["ollama", "run", "qwen2.5-coder:70b"],
 
     # Claude Code：-p 不配權限旗標時，背景執行會停在工具核准而卡死。
     # --strict-mcp-config：worker 的 cwd 是本 repo 的 worktree，不擋的話它會
@@ -349,7 +349,7 @@ async def delegate_to_worker(
     async def run_task():
         try:
             # 純 LLM（如 Ollama）沒有讀檔能力，直接餵 prompt；Agent 則傳 HANDOFF 讀檔指示
-            if worker_type == "local_70b":
+            if worker_type == "ollama":
                 cmd_args = [*_RESOLVED[worker_type], prompt]
             else:
                 cmd_args = [*_RESOLVED[worker_type], HANDOFF]
@@ -489,7 +489,7 @@ worker 端的 `claude` 會在 worktree 裡讀到它、誤以為自己是編排�
 2. 用 `<plan>` 標籤輸出任務拆解，標明依賴關係，並標明**每個子任務會動到哪些檔案**。
    **同一批平行的子任務，檔案清單不得重疊**（重疊就改成序列執行，否則後面必然 merge 衝突）。
    <plan>
-   [子任務 1] 負責人: local_70b | 依賴: 無    | 檔案: src/models/*      | 原因: 大量樣板生成
+   [子任務 1] 負責人: ollama | 依賴: 無    | 檔案: src/models/*      | 原因: 大量樣板生成
    [子任務 2] 負責人: claude_cli| 依賴: 無    | 檔案: src/auth/*        | 原因: 高階邏輯重構
    [子任務 3] 負責人: claude_cli| 依賴: 1, 2 | 檔案: src/app.py        | 原因: 整合層
    </plan>
@@ -497,7 +497,7 @@ worker 端的 `claude` 會在 worktree 裡讀到它、誤以為自己是編排�
 
    | # | 子任務 | 負責 Worker | 動到的檔案 | 依賴 | 狀態 |
    | --- | --- | --- | --- | --- | --- |
-   | 1 | 產生 model 樣板 | local_70b | src/models/* | 無 | 待派工 |
+   | 1 | 產生 model 樣板 | ollama | src/models/* | 無 | 待派工 |
    | 2 | 重構 auth 邏輯 | claude_cli | src/auth/* | 無 | 待派工 |
    | 3 | 整合層 | claude_cli | src/app.py | 1, 2 | 待派工 |
 
@@ -667,10 +667,10 @@ agy --dangerously-skip-permissions --output-format json --print-timeout 30m -p "
 
 ### 6.6 本文件程式碼的煙霧測試（2026-09-02 實跑）
 
-把 §2 的程式碼抽出來、stub 掉 `FastMCP`、把 `local_70b` 指向一支假 worker（讀 `.hub_prompt.md` 並印出），實跑結果：
+把 §2 的程式碼抽出來、stub 掉 `FastMCP`、把 `ollama` 指向一支假 worker（讀 `.hub_prompt.md` 並印出），實跑結果：
 
 - 語法通過，270 行；6 個 `@mcp.tool()` 齊全。
-- `HUB_WORKERS="local_70b,codex_cli"` → `ACTIVE=['local_70b']`，stderr 正確印出 `找不到執行檔，已停用：['codex_cli']`。
+- `HUB_WORKERS="ollama,codex_cli"` → `ACTIVE=['ollama']`，stderr 正確印出 `找不到執行檔，已停用：['codex_cli']`。
 - `claude_cli` 解析到 `claude.CMD` 時，stderr 正確發出批次檔警告。
 - 送出含 `"`、`&`、`%CD%` 且長度 9,000 字的 prompt → Worker 端**逐字元完全一致**收到（這正是 v2.1 會失敗的案例）。
 - 任務結束後 `.hub_prompt.md` 已從 worktree 清除。
@@ -719,5 +719,5 @@ agy --dangerously-skip-permissions --output-format json --print-timeout 30m -p "
 ## 8. v2.2 → v2.3 變更摘要
 
 **修補 v2.2 遺留漏洞**：
-1. **Ollama 讀檔失敗**：修正 v2.2 統一傳送 `.hub_prompt.md` 讀檔指令給所有 Worker 的問題。`local_70b` (Ollama) 無法讀檔，改為直接餵入 `prompt` 字串。
+1. **Ollama 讀檔失敗**：修正 v2.2 統一傳送 `.hub_prompt.md` 讀檔指令給所有 Worker 的問題。`ollama` (Ollama) 無法讀檔，改為直接餵入 `prompt` 字串。
 2. **相對路徑解析衝突**：修正 MCP Server 與 `git` 指令在處理 `../` 時的相對路徑基準不同的地雷。於 SOP 中嚴格規定 Master 建立 worktree 及派工時，**一律使用絕對路徑**。

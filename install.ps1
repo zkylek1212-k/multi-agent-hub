@@ -104,13 +104,13 @@ $hints = @{
     )
     agy_cli    = @("$env:LOCALAPPDATA\agy\bin\agy.exe")
     codex_cli  = @("$env:USERPROFILE\.codex\bin\codex.exe")
-    local_70b  = @()
+    ollama  = @()
 }
-$onPath = @{ claude_cli = 'claude'; agy_cli = 'agy'; codex_cli = 'codex'; local_70b = 'ollama' }
+$onPath = @{ claude_cli = 'claude'; agy_cli = 'agy'; codex_cli = 'codex'; ollama = 'ollama' }
 
 $active = @()
 $bins   = @{}
-foreach ($w in @('claude_cli', 'agy_cli', 'codex_cli', 'local_70b')) {
+foreach ($w in @('claude_cli', 'agy_cli', 'codex_cli', 'ollama')) {
     $found = $null
     foreach ($h in $hints[$w]) {
         if ($h -and (Test-Path -LiteralPath $h)) { $found = (Resolve-Path -LiteralPath $h).Path; break }

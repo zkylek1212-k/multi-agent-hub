@@ -30,7 +30,7 @@ except ModuleNotFoundError:
 # 慣例：接受 prompt 的旗標一律放在**最後**，避免它把後面的旗標當成自己的值。
 WORKER_CMDS = {
     # ollama：.exe，參數安全
-    "local_70b":  ["ollama", "run", "qwen2.5-coder:70b"],
+    "ollama":  ["ollama", "run", "qwen2.5-coder:70b"],
 
     # Claude Code：-p 不配權限旗標時，背景執行會停在工具核准而卡死。
     # --strict-mcp-config：worker 的 cwd 是本 repo 的 worktree，不擋的話它會
@@ -100,7 +100,7 @@ _tasks: set[asyncio.Task] = set()   # 保留 task 強參考，否則背景任務
 
 # --- 共用執行入口 ------------------------------------------------------
 async def _exec(argv: list[str], cwd: str | None, timeout: int | None,
-                log: Path | None = None):
+                log: Path | None = None, env: dict | None = None):
     """以 argv 執行外部程式。回傳 (returncode, 輸出)。
 
     給 log 時輸出直接寫檔，這樣逾時被 kill 也留得住終止前的輸出。
@@ -112,9 +112,13 @@ async def _exec(argv: list[str], cwd: str | None, timeout: int | None,
         return 127, f"[Error] 找不到執行檔: {argv[0]}，請確認已安裝並加入 PATH"
     real = [exe, *argv[1:]]
 
+    merged_env = os.environ.copy()
+    if env:
+        merged_env.update(env)
+
     if log is None:
         p = await asyncio.create_subprocess_exec(
-            *real, cwd=cwd,
+            *real, cwd=cwd, env=merged_env,
             stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
         try:
             out, _ = await asyncio.wait_for(p.communicate(), timeout)
@@ -126,7 +130,7 @@ async def _exec(argv: list[str], cwd: str | None, timeout: int | None,
 
     with open(log, "wb") as f:
         p = await asyncio.create_subprocess_exec(
-            *real, cwd=cwd, stdout=f, stderr=asyncio.subprocess.STDOUT)
+            *real, cwd=cwd, env=merged_env, stdout=f, stderr=asyncio.subprocess.STDOUT)
         try:
             await asyncio.wait_for(p.wait(), timeout)
             code = p.returncode
@@ -178,6 +182,7 @@ async def delegate_to_worker(
     worker_type: str,
     working_dir: str,
     timeout_s: int = 1800,
+    model: str | None = None,
 ) -> str:
     """非同步派工給 Worker。working_dir 必須是先前建立的 worktree 絕對路徑。
 
@@ -214,13 +219,24 @@ async def delegate_to_worker(
     async def run_task():
         try:
             # 純 LLM（如 Ollama）沒有讀檔能力，直接餵 prompt；Agent 則傳 HANDOFF 讀檔指示
-            if worker_type == "local_70b":
-                cmd_args = [*_RESOLVED[worker_type], prompt]
+            custom_env = None
+            if worker_type == "ollama":
+                m = model or "qwen2.5-coder:70b"
+                cmd_args = [_RESOLVED[worker_type][0], "run", m, prompt]
+            elif worker_type == "agy_cli":
+                cmd_args = [*_RESOLVED[worker_type], HANDOFF]
+                if model:
+                    cmd_args.insert(1, "--model")
+                    cmd_args.insert(2, model)
+            elif worker_type == "claude_cli":
+                cmd_args = [*_RESOLVED[worker_type], HANDOFF]
+                if model:
+                    custom_env = {"CLAUDE_MODEL": model}
             else:
                 cmd_args = [*_RESOLVED[worker_type], HANDOFF]
 
             code, out = await _exec(cmd_args,
-                                    cwd=working_dir, timeout=timeout_s, log=log_path)
+                                    cwd=working_dir, timeout=timeout_s, log=log_path, env=custom_env)
             head = "Completed" if code == 0 else f"Failed (rc={code})"
             jobs[job_id]["state"] = f"{head}\n{_tail(out)}"
         except Exception as e:   # 背景 task 的例外預設會被吞掉，必須自己接住

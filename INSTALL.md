@@ -46,7 +46,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 | `claude_cli` | `claude` | `npm i -g @anthropic-ai/claude-code` | 需要 Claude 訂閱或 API key。**建議用官方原生安裝版**，npm 版只有 `.cmd` shim（見 §常見問題） |
 | `agy_cli` | `agy` | Antigravity CLI 官方安裝程式 | 執行檔叫 `agy`，不是 `antigravity` |
 | `codex_cli` | `codex` | `npm i -g @openai/codex` | 需要 OpenAI 帳號 |
-| `local_70b` | `ollama` | <https://ollama.com/download> | 裝完要先 `ollama pull qwen2.5-coder:70b`。純 LLM 無讀檔能力，hub 會改用直接餵 prompt 的路徑 |
+| `ollama` | `ollama` | <https://ollama.com/download> | 裝完要先 `ollama pull qwen2.5-coder:70b`。純 LLM 無讀檔能力，hub 會改用直接餵 prompt 的路徑 |
 
 ### 選裝（強烈建議）
 

@@ -29,7 +29,7 @@ Worker 支援 Claude Code、Antigravity (`agy`)、Codex、Ollama —— 機器�
   （檔案隔離）      claude_cli        （跑測試，
   + .hub_prompt     agy_cli           預設無網路）
                     codex_cli
-                    local_70b
+                    ollama
 ```
 
 ## 快速開始
