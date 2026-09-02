@@ -1,6 +1,5 @@
-
 # --- multi-agent hub: machine-specific, must not reach a worktree ---
-.mcp.json
+# 注意：.mcp.json 配合 Claude Code plugin 規格需進版控（含 ${CLAUDE_PLUGIN_ROOT}），不可忽略
 CLAUDE.md
 .hub_logs/
 .hub_prompt.md
