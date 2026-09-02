@@ -2,6 +2,15 @@
 [English README](README.en.md)
 # Multi-Agent Hub
 
+```mermaid
+flowchart TD
+    M["Master Agent<br/>(Claude Code / Desktop / Cursor)"] -->|MCP over stdio| H["mcp_worker_hub.py"]
+    H --> W1["Git Worktree<br/>(file isolation)"]
+    H --> W2["CLI Workers<br/>claude_cli / agy_cli / codex_cli / ollama"]
+    H --> W3["Docker Sandbox<br/>(runs tests, no network by default)"]
+```
+
+
 用 **MCP (Model Context Protocol)** 打造的可抽換多智能體派工中心。
 
 Master Agent 負責**拆解任務、平行派工、驗證結果**；實際寫程式交給多個 CLI Worker，
