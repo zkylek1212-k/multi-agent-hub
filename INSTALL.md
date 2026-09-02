@@ -70,6 +70,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 | --- | --- |
 | `-SkipDeps` | 跳過 `pip install`（已裝過時加速） |
 | `-Force` | 覆蓋既有的 `CLAUDE.md` |
+| `-DepsOnly` | 只裝相依 + 偵測 Worker + 自我測試，不碰 git / `.gitignore` / `CLAUDE.md` / `.mcp.json`。**以 plugin 安裝時用這個** |
 
 **它做了 8 件事**：
 
@@ -165,6 +166,7 @@ claude mcp list
 | `LICENSE` | ✅ | MIT |
 | `.mcp.json` | ✅ | plugin 規格要求，用 `${CLAUDE_PLUGIN_ROOT}` 而非絕對路徑，所以可以進版控 |
 | `.claude-plugin/plugin.json` | ✅ | plugin manifest（名稱、版本、說明） |
+| `.claude-plugin/marketplace.json` | ✅ | marketplace 清單，`plugin install` 靠它找到 plugin。`source` 必須是 `"./"` |
 | `skills/multi-agent-dispatch/SKILL.md` | ✅ | 派工 SOP 的 Skill 版，隨 plugin 安裝 |
 | `CLAUDE.md` | ❌ | 由 SOP 複製而來，**故意不進版控** |
 | `.hub_logs/` | ❌ | 每個 job 的完整 log 與 prompt 備份 |
@@ -205,9 +207,18 @@ npm 全域安裝只給 `.cmd` shim，走 cmd.exe 會竄改參數並有 8191 字�
 依序查三件事：
 
 1. `/plugin` 確認 `multi-agent-hub` 是 enabled（裝完通常要重開 Claude Code）。
-2. plugin 版 `.mcp.json` 是用 `py -3` 啟動的。在終端機直接跑 `py -3 <plugin 目錄>/mcp_worker_hub.py`：
-   噴 `py` 不存在，代表機器上沒有 Windows Python launcher；噴 `ModuleNotFoundError: No module named 'mcp'`，
-   代表還沒跑過 `install.ps1`（plugin 不會幫你裝 Python 相依）。
+2. **最常見**：還沒裝 Python 相依。plugin 只帶檔案，`mcp[cli]` 要自己裝。跑這行（會自動找到 plugin 目錄）：
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File (Get-ChildItem "$env:USERPROFILE\.claude\plugins\cache\multi-agent-hub\multi-agent-hub\*\install.ps1" | Sort-Object FullName -Descending | Select-Object -First 1).FullName -DepsOnly
+   ```
+
+   **一定要加 `-DepsOnly`**：不加的話腳本會把 plugin 快取目錄當成專案 —— 在裡面 `git init`、
+   複製一份 `CLAUDE.md`、還會多註冊一份 local scope 的 `agent-hub`，變成同一個 server 載入兩次。
+
+   想自己確認是哪一種錯，直接跑 `py -3 <plugin 目錄>/mcp_worker_hub.py`：
+   噴 `py` 不存在 = 機器上沒有 Windows Python launcher（plugin 路徑只支援 Windows）；
+   噴 `ModuleNotFoundError: No module named 'mcp'` = 就是上面這個相依沒裝。
 3. 連上了但 `get_active_workers` 是空的：plugin 版 `.mcp.json` 的 `HUB_WORKERS` 留空＝改由 hub 自己掃 PATH，
    掃不到（或只掃到 npm 的 `.cmd` shim）時，就照 `install.ps1` 印出的 `claude mcp add ...` 那行補上
    `HUB_WORKERS` 與 `HUB_BIN_*`。
