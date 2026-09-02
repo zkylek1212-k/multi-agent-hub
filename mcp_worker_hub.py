@@ -14,10 +14,16 @@ import os
 import shlex
 import shutil
 import sys
+import time
 import uuid
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP
+# mcp 2.0 把 FastMCP 改名成 MCPServer。兩者的 .tool() 與 .run(transport=) 相同，
+# 所以吃哪個版本都能跑，不必 pin mcp<2。
+try:
+    from mcp.server.fastmcp import FastMCP as _Server      # mcp 1.x
+except ModuleNotFoundError:
+    from mcp.server.mcpserver import MCPServer as _Server  # mcp 2.x
 
 # --- Worker 指令表 -----------------------------------------------------
 # prompt 不放在命令列上（見下方 HANDOFF），這裡只放固定旗標。
@@ -87,7 +93,7 @@ if _missing:
 if not ACTIVE:
     print("[hub] 沒有任何可用的 Worker，請檢查 PATH 或 HUB_BIN_* 設定。", file=sys.stderr)
 
-mcp = FastMCP("Local-Agent-Hub")
+mcp = _Server("Local-Agent-Hub")
 jobs: dict[str, dict] = {}          # job_id -> {state, log, done: asyncio.Event}
 _tasks: set[asyncio.Task] = set()   # 保留 task 強參考，否則背景任務可能被 GC
 
@@ -190,10 +196,19 @@ async def delegate_to_worker(
     prompt_path.write_text(prompt, encoding="utf-8")
     (LOG_DIR / f"{job_id}.prompt.md").write_text(prompt, encoding="utf-8")
 
+    # desc 給 list_jobs 當「這個 job 在做什麼」用：取 prompt 第一行非空白內容。
+    desc = next((ln.strip() for ln in prompt.splitlines() if ln.strip()), "(無描述)")
+    if len(desc) > 60:
+        desc = desc[:57] + "..."
+
     jobs[job_id] = {
         "state": f"Running on {worker_type}",
         "log": str(log_path),
         "done": asyncio.Event(),
+        "worker": worker_type,
+        "desc": desc,
+        "dir": working_dir,
+        "started": time.monotonic(),
     }
 
     async def run_task():
@@ -212,6 +227,7 @@ async def delegate_to_worker(
             jobs[job_id]["state"] = f"Crashed: {e!r}"
         finally:
             prompt_path.unlink(missing_ok=True)   # 別留在 worktree 裡污染 diff
+            jobs[job_id]["elapsed"] = time.monotonic() - jobs[job_id]["started"]
             jobs[job_id]["done"].set()
 
     t = asyncio.create_task(run_task())
@@ -246,6 +262,29 @@ async def wait_for_job(job_ids: str, timeout_s: int = WAIT_SLICE) -> str:
 
     return "\n\n".join(
         f"[{i}] {jobs[i]['state']}\n(完整 log: {jobs[i]['log']})" for i in ids)
+
+
+@mcp.tool()
+async def list_jobs() -> str:
+    """列出本次啟動以來所有 job 的狀態表，給使用者看的進度總覽。
+
+    這是 hub 的真實記錄，不是 Master 的記憶——每次要向使用者回報進度時都該用它。
+    """
+    if not jobs:
+        return "（尚未派出任何 job）"
+
+    rows = ["| job_id | Worker | 狀態 | 耗時 | 任務 |",
+            "| --- | --- | --- | --- | --- |"]
+    for jid, j in jobs.items():
+        first = j["state"].splitlines()[0] if j["state"] else "?"
+        if j["done"].is_set():
+            state = first                       # Completed / Failed (rc=N) / Crashed
+        else:
+            state = "執行中"
+        secs = j.get("elapsed", time.monotonic() - j["started"])
+        rows.append(f"| {jid} | {j['worker']} | {state} | {int(secs // 60)}m{int(secs % 60):02d}s "
+                    f"| {j['desc']} |")
+    return "\n".join(rows)
 
 
 @mcp.tool()

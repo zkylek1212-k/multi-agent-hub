@@ -1,0 +1,10 @@
+
+# --- multi-agent hub: machine-specific, must not reach a worktree ---
+.mcp.json
+CLAUDE.md
+.hub_logs/
+.hub_prompt.md
+wt-*/
+NOTES.md
+__pycache__/
+*.bak
