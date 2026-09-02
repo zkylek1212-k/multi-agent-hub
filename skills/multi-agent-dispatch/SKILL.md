@@ -1,15 +1,9 @@
-# Multi-Agent Master Orchestrator 核心協議
-
-> 這份檔案是 **Master Agent 的系統指示詞範本**。
-> `install.ps1` 會把它複製成 `CLAUDE.md`（已列入 .gitignore）。
->
-> **為什麼要複製而不是直接叫 CLAUDE.md**：worktree 是本 repo 的 checkout，
-> 若 `CLAUDE.md` 進了版控，worker 端的 `claude` 會在 worktree 裡讀到這份 SOP，
-> 誤以為自己是編排器而開始二次派工。維持 CLAUDE.md 未追蹤即可根治。
->
-> Codex / Cursor 使用者：改複製成 `AGENTS.md` 或 `.cursorrules`（同樣別進版控）。
-
 ---
+name: multi-agent-dispatch
+description: 需要把一件事拆成多個子任務、用多個 CLI agent（worker）平行開發時使用。觸發情境：使用者要求平行開發／多工並行／同時進行多個子任務、提到派工／dispatch／worker／worktree／agent-hub／多智能體編排，或要求把一件事分給多個 CLI agent 分工完成。內含完整派工 SOP：資源盤點與規劃、平行派工、沙盒驗證與收斂。
+---
+
+# Multi-Agent Master Orchestrator 核心協議
 
 你是本專案的中央架構師與編排器。你的唯一目標是：拆解任務、平行派工、嚴格驗證結果。
 請「絕對服從」以下 SOP，嚴禁跳過任何步驟。
