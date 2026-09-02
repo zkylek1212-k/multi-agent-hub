@@ -1,7 +1,7 @@
 # 安裝與部署指南
 
 從全新機台 clone 到能派工，Windows 上兩行指令。
-架構原理、安全模型與實測紀錄見 [Multi-Agent ADE 派工架構.md](Multi-Agent%20ADE%20%E6%B4%BE%E5%B7%A5%E6%9E%B6%E6%A7%8B.md)。
+架構原理、安全模型與實測紀錄見 [ARCHITECTURE.md](ARCHITECTURE.md)。
 
 ---
 
@@ -151,7 +151,7 @@ claude mcp list
 | `MASTER_SOP.md` | ✅ | Master 系統指示詞範本 |
 | `test_hub.py` | ✅ | 自我測試，`py -3 test_hub.py` 可單獨跑 |
 | `install.ps1` | ✅ | 部署腳本（**必須 UTF-8 with BOM**，見常見問題） |
-| `Multi-Agent ADE 派工架構.md` | ✅ | 架構、安全模型、實測紀錄 |
+| `ARCHITECTURE.md` | ✅ | 架構、安全模型、實測紀錄 |
 | `README.md` | ✅ | GitHub 首頁 |
 | `LICENSE` | ✅ | MIT |
 | `CLAUDE.md` | ❌ | 由 SOP 複製而來，**故意不進版控** |
