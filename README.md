@@ -1,3 +1,5 @@
+
+[English README](README.en.md)
 # Multi-Agent Hub
 
 用 **MCP (Model Context Protocol)** 打造的可抽換多智能體派工中心。
