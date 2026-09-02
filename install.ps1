@@ -1,0 +1,254 @@
+﻿<#
+.SYNOPSIS
+    Multi-Agent ADE 派工中心 — 一鍵部署（Windows / PowerShell 5.1+）
+
+.DESCRIPTION
+    偵測本機可用的 Worker CLI、安裝 Python 相依、產生機器專屬的 .mcp.json，
+    並做一次真正的匯入煙霧測試。可重複執行（idempotent）。
+
+.PARAMETER SkipDeps
+    跳過 pip install（已經裝過 mcp[cli] 時用）。
+
+.PARAMETER Force
+    覆蓋既有的 CLAUDE.md。
+
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File .\install.ps1
+
+.NOTES
+    本檔必須以 UTF-8 with BOM 儲存，否則 PowerShell 5.1 會用系統 ANSI 讀取，
+    中文註解會亂碼並讓字串括號配對失敗。
+#>
+[CmdletBinding()]
+param(
+    [switch]$SkipDeps,
+    [switch]$Force
+)
+
+$ErrorActionPreference = 'Stop'
+$root = $PSScriptRoot
+if (-not $root) { $root = (Get-Location).Path }
+
+function Step($n, $msg) { Write-Host "`n[$n] $msg" -ForegroundColor Cyan }
+function OK($msg)       { Write-Host "    OK   $msg" -ForegroundColor Green }
+function Warn($msg)     { Write-Host "    WARN $msg" -ForegroundColor Yellow }
+function Die($msg)      { Write-Host "`nFAIL $msg" -ForegroundColor Red; exit 1 }
+
+function Invoke-Native {
+    # PS 5.1 在 $ErrorActionPreference='Stop' 下，會把原生指令寫到 stderr 的每一行
+    # 包成 NativeCommandError 終止錯誤 —— 即使該指令回傳 0。git 與 python 都會
+    # 正常往 stderr 寫東西，所以一律透過這裡呼叫，並改看 exit code。
+    param([scriptblock]$Block)
+    $ErrorActionPreference = 'Continue'
+    $global:LASTEXITCODE = 0
+    $out = & $Block 2>&1 | Out-String
+    return [pscustomobject]@{ Code = $LASTEXITCODE; Out = $out }
+}
+
+Write-Host "Multi-Agent ADE 派工中心 — 部署" -ForegroundColor White
+Write-Host "專案目錄: $root"
+
+# --- 1. Python 3.10+ ---------------------------------------------------
+Step 1 "尋找 Python 3.10 以上（hub 用到 str | None 語法，3.10 起才支援）"
+
+$pyExe = $null
+$pyArgs = @()
+foreach ($c in @(
+    @{ exe = 'py';      args = @('-3') },
+    @{ exe = 'python';  args = @() },
+    @{ exe = 'python3'; args = @() }
+)) {
+    if (-not (Get-Command $c.exe -ErrorAction SilentlyContinue)) { continue }
+    $probe = Invoke-Native { & $c.exe @($c.args) -c "import sys;print(sys.version_info[0],sys.version_info[1])" }
+    if ($probe.Code -ne 0) { continue }
+    $nums = $probe.Out.Trim().Split(' ')
+    if ($nums.Count -lt 2) { continue }
+    $maj = [int]$nums[0]; $min = [int]$nums[1]
+    if ($maj -ge 3 -and $min -ge 10) {
+        $pyExe = $c.exe; $pyArgs = $c.args
+        OK "$($c.exe) $($c.args -join ' ') -> Python $maj.$min"
+        break
+    }
+    Warn "$($c.exe) 是 Python $maj.$min，低於 3.10，繼續找"
+}
+if (-not $pyExe) { Die "找不到 Python 3.10+。請安裝 https://www.python.org/downloads/ 並勾選 Add to PATH。" }
+
+# --- 2. 相依套件 -------------------------------------------------------
+Step 2 "安裝 Python 相依 (mcp[cli])"
+if ($SkipDeps) {
+    Warn "已指定 -SkipDeps，略過"
+} else {
+    $r = Invoke-Native { & $pyExe @pyArgs -m pip install --quiet --no-warn-script-location --upgrade "mcp[cli]" }
+    if ($r.Code -ne 0) {
+        Write-Host $r.Out
+        Die "pip install 失敗。若是權限問題，改跑：$pyExe $($pyArgs -join ' ') -m pip install --user `"mcp[cli]`""
+    }
+    OK "mcp[cli] 已安裝"
+}
+
+# --- 3. 偵測 Worker ----------------------------------------------------
+Step 3 "偵測可用的 Worker CLI"
+
+# 已知的真實 .exe 路徑，優先於 PATH：npm 裝出來的是 .cmd shim，
+# 走 cmd.exe 會竄改參數並有 8191 字上限（見架構文件 §6.2 / §6.3）。
+$hints = @{
+    claude_cli = @(
+        "$env:USERPROFILE\.local\bin\claude.exe",
+        "$env:APPDATA\npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe"
+    )
+    agy_cli    = @("$env:LOCALAPPDATA\agy\bin\agy.exe")
+    codex_cli  = @("$env:USERPROFILE\.codex\bin\codex.exe")
+    local_70b  = @()
+}
+$onPath = @{ claude_cli = 'claude'; agy_cli = 'agy'; codex_cli = 'codex'; local_70b = 'ollama' }
+
+$active = @()
+$bins   = @{}
+foreach ($w in @('claude_cli', 'agy_cli', 'codex_cli', 'local_70b')) {
+    $found = $null
+    foreach ($h in $hints[$w]) {
+        if ($h -and (Test-Path -LiteralPath $h)) { $found = (Resolve-Path -LiteralPath $h).Path; break }
+    }
+    if ($found) {
+        $active += $w
+        $bins["HUB_BIN_$($w.ToUpper())"] = ($found -replace '\\', '/')
+        OK "$w -> $found"
+        continue
+    }
+    $cmd = Get-Command $onPath[$w] -ErrorAction SilentlyContinue
+    if (-not $cmd) { Warn "$w 未安裝（$($onPath[$w]) 不在 PATH），本次停用"; continue }
+    $src = $cmd.Source
+    $active += $w
+    if ($src -match '\.(cmd|bat)$') {
+        Warn "$w -> $src 是批次檔。prompt 走檔案傳遞故無注入風險，但建議手動指定 HUB_BIN_$($w.ToUpper())"
+    } else {
+        $bins["HUB_BIN_$($w.ToUpper())"] = ($src -replace '\\', '/')
+        OK "$w -> $src"
+    }
+}
+if ($active.Count -eq 0) { Die "一個 Worker 都沒偵測到。至少要裝一個，見 INSTALL.md 的工具清單。" }
+
+foreach ($t in @('git', 'docker')) {
+    $c = Get-Command $t -ErrorAction SilentlyContinue
+    if ($c) { OK "$t -> $($c.Source)" } else { Warn "$t 未安裝" }
+}
+if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+    Die "git 是必要條件（worktree 隔離靠它）。https://git-scm.com/download/win"
+}
+$hasDocker = [bool](Get-Command docker -ErrorAction SilentlyContinue)
+
+# --- 4. git repo -------------------------------------------------------
+Step 4 "確認 git repo（worktree 派工的前提）"
+Push-Location $root
+try {
+    $inRepo = (Invoke-Native { git rev-parse --git-dir }).Code -eq 0
+    if (-not $inRepo) {
+        $r = Invoke-Native { git init }
+        if ($r.Code -ne 0) { Write-Host $r.Out; Die "git init 失敗" }
+        OK "已 git init"
+    }
+    $hasHead = (Invoke-Native { git rev-parse HEAD }).Code -eq 0
+    if ($hasHead) {
+        OK "repo 已有 commit"
+    } else {
+        Invoke-Native { git add -A } | Out-Null
+        $r = Invoke-Native { git commit -m "chore: bootstrap multi-agent hub" }
+        if ($r.Code -eq 0) {
+            OK "已建立初始 commit"
+        } else {
+            Warn "無法自動 commit（通常是還沒設 git user.name / user.email）。"
+            Warn "git worktree 需要至少一個 commit，請手動補：git add -A; git commit -m init"
+        }
+    }
+} finally { Pop-Location }
+
+# --- 5. .gitignore -----------------------------------------------------
+Step 5 "寫入 .gitignore"
+# CLAUDE.md 與 .mcp.json 必須維持未追蹤：worktree 是本 repo 的 checkout，
+# 一旦進版控，worker 端的 claude 會在 worktree 讀到 Master SOP、也拿到 hub 工具，
+# 於是誤以為自己是編排器並再次派工（遞迴分裂）。
+$want = @('.mcp.json', 'CLAUDE.md', '.hub_logs/', '.hub_prompt.md', 'wt-*/', 'NOTES.md')
+$gi = Join-Path $root '.gitignore'
+$existing = @()
+if (Test-Path -LiteralPath $gi) { $existing = @(Get-Content -LiteralPath $gi) }
+$add = @($want | Where-Object { $existing -notcontains $_ })
+if ($add.Count -gt 0) {
+    $out = $existing + @('', '# --- multi-agent hub: machine-specific, must not reach a worktree ---') + $add
+    Set-Content -LiteralPath $gi -Value $out -Encoding ascii
+    OK "新增 $($add.Count) 條規則"
+} else {
+    OK "規則已齊全"
+}
+
+# --- 6. Master SOP -> CLAUDE.md ---------------------------------------
+Step 6 "安裝 Master SOP 為 CLAUDE.md"
+$sop = Join-Path $root 'MASTER_SOP.md'
+$claudeMd = Join-Path $root 'CLAUDE.md'
+if (-not (Test-Path -LiteralPath $sop)) { Die "找不到 MASTER_SOP.md，repo 不完整。" }
+if ((Test-Path -LiteralPath $claudeMd) -and (-not $Force)) {
+    Warn "CLAUDE.md 已存在，保留原檔（要覆蓋請加 -Force）"
+} else {
+    Copy-Item -LiteralPath $sop -Destination $claudeMd -Force
+    OK "已產生 CLAUDE.md"
+}
+
+# --- 7. .mcp.json ------------------------------------------------------
+Step 7 "產生 .mcp.json（Claude Code 專案級 MCP 設定）"
+$hubPy = Join-Path $root 'mcp_worker_hub.py'
+if (-not (Test-Path -LiteralPath $hubPy)) { Die "找不到 mcp_worker_hub.py，repo 不完整。" }
+
+$envMap = [ordered]@{
+    HUB_WORKERS    = ($active -join ',')
+    HUB_LOG_DIR    = ((Join-Path $root '.hub_logs') -replace '\\', '/')
+    HUB_WAIT_SLICE = '300'
+}
+foreach ($k in ($bins.Keys | Sort-Object)) { $envMap[$k] = $bins[$k] }
+
+$hub = [ordered]@{
+    command = $pyExe
+    args    = @($pyArgs + @($hubPy -replace '\\', '/'))
+    env     = $envMap
+}
+
+$cfgPath = Join-Path $root '.mcp.json'
+$servers = [ordered]@{}
+if (Test-Path -LiteralPath $cfgPath) {
+    $old = Get-Content -LiteralPath $cfgPath -Raw | ConvertFrom-Json
+    if ($old.mcpServers) {
+        foreach ($p in $old.mcpServers.PSObject.Properties) {
+            if ($p.Name -ne 'agent-hub') { $servers[$p.Name] = $p.Value }
+        }
+    }
+    if ($servers.Count -gt 0) { OK "保留既有的 $($servers.Count) 個 MCP server" }
+}
+$servers['agent-hub'] = $hub
+$json = ConvertTo-Json ([ordered]@{ mcpServers = $servers }) -Depth 6
+# 不能有 BOM：JSON 解析器會把它當非法字元
+[IO.File]::WriteAllText($cfgPath, $json, (New-Object Text.UTF8Encoding $false))
+OK "已寫入 $cfgPath"
+
+# --- 8. 煙霧測試 -------------------------------------------------------
+Step 8 "煙霧測試：實際匯入 hub，驗證套件與 Worker 解析"
+foreach ($k in $envMap.Keys) { Set-Item -Path "env:$k" -Value $envMap[$k] }
+
+Push-Location $root
+try {
+    $r = Invoke-Native { & $pyExe @pyArgs -c "import mcp_worker_hub as h; print('SMOKE ok active=' + ','.join(h.ACTIVE))" }
+    if ($r.Code -ne 0) { Write-Host $r.Out; Die "匯入 mcp_worker_hub 失敗，錯誤訊息如上。" }
+    foreach ($line in ($r.Out -split "`r?`n")) {
+        if ($line.Trim()) { OK $line.Trim() }
+    }
+} finally { Pop-Location }
+
+# --- 完成 --------------------------------------------------------------
+Write-Host "`n部署完成。" -ForegroundColor Green
+Write-Host "  啟用的 Worker : $($envMap.HUB_WORKERS)"
+Write-Host "  MCP 設定      : .mcp.json（Claude Code 專案級）"
+Write-Host "  Master SOP    : CLAUDE.md"
+if (-not $hasDocker) {
+    Write-Host "`n注意：本機沒有 Docker，run_in_sandbox 會回 rc=127。" -ForegroundColor Yellow
+    Write-Host "      裝 Docker Desktop，或依 CLAUDE.md 的規定改在 worktree 內直接跑測試。" -ForegroundColor Yellow
+}
+Write-Host "`n下一步：在本目錄開啟 Claude Code，核准 agent-hub 這個 MCP server，然後："
+Write-Host "  /mcp                    # 確認 agent-hub 是 connected" -ForegroundColor White
+Write-Host "  請呼叫 get_active_workers" -ForegroundColor White
