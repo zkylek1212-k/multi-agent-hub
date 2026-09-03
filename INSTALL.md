@@ -158,7 +158,8 @@ claude mcp list
 
 | 檔案 | 進版控 | 說明 |
 | --- | --- | --- |
-| `mcp_worker_hub.py` | ✅ | MCP Server 本體，7 個工具 |
+| `mcp_worker_hub.py` | ✅ | MCP Server 本體，8 個工具（含 `open_dashboard` 即時儀表板） |
+| `dashboard_float.py` | ✅ | 桌面懸浮儀表板（Tkinter，純 stdlib）；`open_dashboard()` 會彈出它 |
 | `skills/multi-agent-dispatch/SKILL.md` | ✅ | 派工 SOP 與模型菜單的**唯一真實來源**；plugin 隨附自動同步，`install.ps1` 也從它生成 `CLAUDE.md` |
 | `test_hub.py` | ✅ | 自我測試，`py -3 test_hub.py` 可單獨跑 |
 | `install.ps1` | ✅ | 部署腳本（**必須 UTF-8 with BOM**，見常見問題） |

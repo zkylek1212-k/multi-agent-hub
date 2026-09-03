@@ -39,10 +39,18 @@ description: 需要把一件事拆成多個子任務、用多個 CLI agent（wor
    （提示分支或目錄已存在時，換一個帶序號的名字，或先 `worktree remove --force` 清掉舊的）
 2. **批次派發**：對每個子任務呼叫 `delegate_to_worker`，**必須**帶入上一步的 worktree 路徑。同時，**請務必傳入您在計畫表中決定的 `model` 參數**（例如 `model="gemini-3.1-pro-high"` 或 `model="gemini-3.7-flash-medium"`），以確保派工給具有相應能力的大腦。
    收齊所有 `job_id` 後才進下一步。
-3. **統一等待**：把所有 job_id 用逗號串起來，**一次** `wait_for_job` 等整批。
+3. **開即時懸浮儀表板給使用者**（強烈建議、每個 session 只需一次）：呼叫 `open_dashboard()`。
+   它會起本機 HTTP server 並**自動彈出一個桌面懸浮視窗（always-on-top、每 2 秒自動刷新）**，
+   同時顯示兩層狀態：
+   - **各 job 派工狀態**：worker、任務描述、執行中／完成／失敗、耗時、**當下 log 尾行**（worker 正在做什麼）。
+   - **agent-hub 自身執行狀態**：啟用的 workers、uptime、running/done/failed 計數、hub 最近在跑哪個工具。
+   使用者不必等你 poll 就能即時盯進度。工具會回傳一個備援 URL——**懸浮視窗若沒彈出來**
+   （無桌面環境等），再改用 Browser pane 開那個 URL。這是即時視覺，與下面 `list_jobs`
+   的文字記錄互補、不互相取代。
+4. **統一等待**：把所有 job_id 用逗號串起來，**一次** `wait_for_job` 等整批。
    若回傳 `[Still Running]`，原樣再呼叫一次，**不要要求使用者提醒你**，
    也**不要**對每個 job 分開呼叫（那會讓往返次數變成 N 倍）。
-4. **回報進度給使用者**（不可省略）：**每次** `wait_for_job` 返回後——包含回傳
+5. **回報進度給使用者**（不可省略）：**每次** `wait_for_job` 返回後——包含回傳
    `[Still Running]` 的那幾次——呼叫 `list_jobs`，把它的表格貼給使用者，
    並同步更新第一階段那張表的狀態欄。
    **狀態一律以 `list_jobs` 的回傳為準，不要憑自己的記憶寫**（那是 hub 的真實記錄）。

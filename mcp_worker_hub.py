@@ -10,12 +10,16 @@
 """
 
 import asyncio
+import json
 import os
 import shlex
 import shutil
+import subprocess
 import sys
+import threading
 import time
 import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 # mcp 2.0 把 FastMCP 改名成 MCPServer。兩者的 .tool() 與 .run(transport=) 相同，
@@ -97,6 +101,14 @@ mcp = _Server("Local-Agent-Hub")
 jobs: dict[str, dict] = {}          # job_id -> {state, log, done: asyncio.Event}
 _tasks: set[asyncio.Task] = set()   # 保留 task 強參考，否則背景任務可能被 GC
 
+# hub 自身的執行狀態：啟動時間 + 最近事件環狀緩衝（給懸浮儀表板顯示「hub 正在做什麼」）
+_HUB: dict = {"started": time.monotonic(), "events": []}
+
+
+def _hub_event(text: str) -> None:
+    _HUB["events"].append((time.time(), text))
+    del _HUB["events"][:-30]   # 只留最近 30 筆
+
 
 # --- 共用執行入口 ------------------------------------------------------
 async def _exec(argv: list[str], cwd: str | None, timeout: int | None,
@@ -172,6 +184,8 @@ async def git(args: str, repo: str) -> str:
       "merge --no-ff worker-task-1"
       "merge --abort"
     """
+    sub = args.split()[0] if args.split() else args
+    _hub_event(f"git {sub} …")
     code, out = await _exec(["git", *shlex.split(args)], cwd=repo, timeout=120)
     return f"[git rc={code}]\n{_tail(out)}"
 
@@ -245,10 +259,12 @@ async def delegate_to_worker(
             prompt_path.unlink(missing_ok=True)   # 別留在 worktree 裡污染 diff
             jobs[job_id]["elapsed"] = time.monotonic() - jobs[job_id]["started"]
             jobs[job_id]["done"].set()
+            _hub_event(f"job {job_id} 結束：{jobs[job_id]['state'].splitlines()[0]}")
 
     t = asyncio.create_task(run_task())
     _tasks.add(t)
     t.add_done_callback(_tasks.discard)
+    _hub_event(f"派工 job {job_id} → {worker_type}" + (f" / {model}" if model else ""))
     return f"[Job Started] ID={job_id} worker={worker_type} dir={working_dir}"
 
 
@@ -336,9 +352,186 @@ async def run_in_sandbox(
         "-v", f"{abs_path}:/app", "-w", "/app",
         image, "sh", "-c", command,
     ]
+    _hub_event(f"sandbox: {command[:40]}")
     code, out = await _exec(argv, cwd=None, timeout=timeout_s)
     head = "Passed" if code == 0 else f"Failed (rc={code})"
     return f"[Sandbox {head}] (network={'on' if network else 'off'})\n{_tail(out)}"
+
+
+# --- 即時派工儀表板 ----------------------------------------------------
+# server 跑在 hub 進程內的 daemon thread，直接讀記憶體的 jobs dict + tail log 檔，
+# 不需中介檔。頁面每 2 秒 fetch /api 自動刷新。open_dashboard() 由 Master 派工後呼叫。
+_dash = {"port": None}
+
+
+def _log_tail(path: str, n: int = 6) -> str:
+    """回傳 log 尾端幾行非空內容，當作「worker 現在在做什麼」。"""
+    try:
+        lines = [ln for ln in Path(path).read_text(
+            encoding="utf-8", errors="replace").splitlines() if ln.strip()]
+    except OSError:
+        return ""
+    return "\n".join(lines[-n:])
+
+
+def _dash_state() -> dict:
+    out = []
+    running = 0
+    done_n = 0
+    failed_n = 0
+    for jid, j in jobs.items():
+        done = j["done"].is_set()
+        head = (j["state"].splitlines()[0] if j.get("state") else "?")
+        secs = int(j.get("elapsed", time.monotonic() - j["started"]))
+        if not done:
+            running += 1
+        elif head.startswith("Completed"):
+            done_n += 1
+        else:
+            failed_n += 1
+        out.append({
+            "id": jid, "worker": j["worker"], "desc": j["desc"],
+            "done": done,
+            "status": head if done else "running",
+            "elapsed": secs, "tail": _log_tail(j["log"]), "dir": j.get("dir", ""),
+        })
+    hub = {
+        "workers": ACTIVE,
+        "uptime": int(time.monotonic() - _HUB["started"]),
+        "total": len(jobs), "running": running, "done": done_n, "failed": failed_n,
+        "events": [{"t": int(t), "msg": m} for t, m in _HUB["events"][-8:]],
+    }
+    return {"jobs": out, "hub": hub, "ts": int(time.time())}
+
+
+_DASH_HTML = """<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>派工儀表板</title><style>
+:root{color-scheme:light dark;--bg:#0f1115;--card:#1a1e27;--fg:#e6e6e6;--mut:#8b93a7;
+--run:#f0b429;--ok:#3ecf8e;--bad:#ff6b6b;--line:#2a2f3a}
+*{box-sizing:border-box}body{margin:0;font:14px/1.5 system-ui,"Microsoft JhengHei",sans-serif;
+background:var(--bg);color:var(--fg)}
+header{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;
+align-items:center;gap:12px}
+header h1{font-size:16px;margin:0}#meta{color:var(--mut);font-size:12px}
+.cols{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;padding:16px}
+.col h2{font-size:13px;color:var(--mut);margin:0 0 8px;text-transform:uppercase;
+letter-spacing:.05em}
+.card{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--mut);
+border-radius:8px;padding:10px 12px;margin-bottom:10px}
+.card.run{border-left-color:var(--run)}.card.ok{border-left-color:var(--ok)}
+.card.bad{border-left-color:var(--bad)}
+.card .top{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
+.id{font-family:ui-monospace,monospace;color:var(--mut);font-size:12px}
+.badge{font-size:11px;padding:1px 6px;border-radius:10px;background:#2a2f3a;color:var(--fg)}
+.desc{margin:6px 0;font-weight:600}
+.elapsed{color:var(--mut);font-size:12px}
+pre{margin:8px 0 0;padding:8px;background:#0b0d12;border-radius:6px;font-size:11px;
+color:var(--mut);white-space:pre-wrap;word-break:break-all;max-height:120px;overflow:auto}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+.dot.run{background:var(--run);animation:blink 1s infinite}
+.dot.ok{background:var(--ok)}.dot.bad{background:var(--bad)}
+@keyframes blink{50%{opacity:.3}}
+.empty{color:var(--mut);font-size:12px;padding:8px 0}
+</style></head><body>
+<header><h1>🚀 派工即時儀表板</h1><span id="meta">連線中…</span></header>
+<div class="cols">
+<div class="col"><h2>執行中</h2><div id="run"></div></div>
+<div class="col"><h2>已完成</h2><div id="ok"></div></div>
+<div class="col"><h2>失敗 / 異常</h2><div id="bad"></div></div>
+</div>
+<script>
+function fmt(s){var m=Math.floor(s/60),x=s%60;return m+"m"+(x<10?"0":"")+x+"s"}
+function esc(t){var d=document.createElement("div");d.textContent=t||"";return d.innerHTML}
+function card(j,cls){return '<div class="card '+cls+'"><div class="top">'+
+'<span class="id">'+j.id+'</span><span class="badge">'+esc(j.worker)+'</span></div>'+
+'<div class="desc"><span class="dot '+cls+'"></span>'+esc(j.desc)+'</div>'+
+'<div class="elapsed">'+esc(cls==="run"?"執行中 · ":j.status+" · ")+fmt(j.elapsed)+'</div>'+
+(j.tail?'<pre>'+esc(j.tail)+'</pre>':'')+'</div>'}
+async function tick(){
+ try{var r=await fetch("/api",{cache:"no-store"});var d=await r.json();
+  var run=[],ok=[],bad=[];
+  d.jobs.forEach(function(j){
+   if(!j.done)run.push(card(j,"run"));
+   else if(/^Completed/.test(j.status))ok.push(card(j,"ok"));
+   else bad.push(card(j,"bad"));});
+  document.getElementById("run").innerHTML=run.join("")||'<div class="empty">—</div>';
+  document.getElementById("ok").innerHTML=ok.join("")||'<div class="empty">—</div>';
+  document.getElementById("bad").innerHTML=bad.join("")||'<div class="empty">—</div>';
+  document.getElementById("meta").textContent=
+   d.jobs.length+" 個 job · 更新於 "+new Date(d.ts*1000).toLocaleTimeString();
+ }catch(e){document.getElementById("meta").textContent="hub 連線中斷（可能 session 已關）";}
+}
+tick();setInterval(tick,2000);
+</script></body></html>"""
+
+
+class _DashHandler(BaseHTTPRequestHandler):
+    def log_message(self, *a):   # 靜音：預設會往 stderr 印每個請求
+        pass
+
+    def do_GET(self):
+        if self.path.startswith("/api"):
+            body = json.dumps(_dash_state()).encode("utf-8")
+            ctype = "application/json; charset=utf-8"
+        else:
+            body = _DASH_HTML.encode("utf-8")
+            ctype = "text/html; charset=utf-8"
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
+
+
+def _launch_float(port: int) -> str:
+    """彈出桌面懸浮視窗（Tkinter，always-on-top）。回傳狀態字串。"""
+    script = Path(__file__).with_name("dashboard_float.py")
+    if not script.is_file():
+        return "（找不到 dashboard_float.py，改用瀏覽器開 URL）"
+    argv = [sys.executable, str(script), str(port)]
+    try:
+        if os.name == "nt":
+            flags = (getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+                     | getattr(subprocess, "DETACHED_PROCESS", 0))
+            _dash["proc"] = subprocess.Popen(argv, creationflags=flags)
+        else:
+            _dash["proc"] = subprocess.Popen(argv, start_new_session=True)
+        return "已彈出懸浮視窗"
+    except Exception as e:   # GUI 起不來就退回瀏覽器
+        return f"（懸浮視窗啟動失敗：{e!r}，改用瀏覽器開 URL）"
+
+
+@mcp.tool()
+async def open_dashboard() -> str:
+    """啟動即時派工儀表板：起本機 HTTP server，並彈出一個桌面懸浮視窗（always-on-top，
+    每 2 秒自動刷新）。視窗同時顯示「各 job 派工狀態」與「agent-hub 自身執行狀態」
+    （啟用的 workers、uptime、running/done/failed 計數、最近在跑的工具）。
+
+    Master 派工後呼叫一次即可（idempotent）。若懸浮視窗起不來（無桌面環境等），
+    仍會回傳 URL，可改用瀏覽器開啟。
+    """
+    if not _dash["port"]:
+        srv = None
+        for p in range(8787, 8807):
+            try:
+                srv = ThreadingHTTPServer(("127.0.0.1", p), _DashHandler)
+                _dash["port"] = p
+                break
+            except OSError:
+                continue
+        if srv is None:
+            return "[Error] 8787-8806 連接埠皆被占用，無法啟動儀表板。"
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+    url = f"http://127.0.0.1:{_dash['port']}/"
+    proc = _dash.get("proc")
+    alive = proc is not None and proc.poll() is None
+    note = "（懸浮視窗已在執行）" if alive else _launch_float(_dash["port"])
+    return f"{note}\n備援 URL（懸浮視窗看不到時用瀏覽器開）：{url}"
 
 
 if __name__ == "__main__":
