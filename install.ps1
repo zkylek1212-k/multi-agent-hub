@@ -216,16 +216,38 @@ if ($add.Count -gt 0) {
     OK "規則已齊全"
 }
 
-# --- 6. Master SOP -> CLAUDE.md ---------------------------------------
-Step 6 "安裝 Master SOP 為 CLAUDE.md"
-$sop = Join-Path $root 'MASTER_SOP.md'
+# --- 6. 派工 SOP -> CLAUDE.md（單一真實來源：skill）---------------------
+Step 6 "從 multi-agent-dispatch skill 生成 CLAUDE.md（唯一菜單來源）"
+# 派工 SOP 與模型菜單只維護 skills/multi-agent-dispatch/SKILL.md 一份。
+# plugin 用戶直接吃這個 skill（隨 plugin 更新自動同步），repo 用戶則由這裡
+# 從同一份 skill 生成 CLAUDE.md —— 兩條路徑同源，菜單不會分裂。
+$skill = Join-Path $root 'skills/multi-agent-dispatch/SKILL.md'
 $claudeMd = Join-Path $root 'CLAUDE.md'
-if (-not (Test-Path -LiteralPath $sop)) { Die "找不到 MASTER_SOP.md，repo 不完整。" }
+if (-not (Test-Path -LiteralPath $skill)) { Die "找不到 skills/multi-agent-dispatch/SKILL.md，repo 不完整。" }
 if ((Test-Path -LiteralPath $claudeMd) -and (-not $Force)) {
     Warn "CLAUDE.md 已存在，保留原檔（要覆蓋請加 -Force）"
 } else {
-    Copy-Item -LiteralPath $sop -Destination $claudeMd -Force
-    OK "已產生 CLAUDE.md"
+    # 剝掉 skill 的 YAML frontmatter，換上 CLAUDE.md 專屬前言後寫出。
+    # 必須 -Encoding UTF8：PS 5.1 預設用系統 ANSI(CP950) 讀，會把 UTF-8 中文打成亂碼。
+    $skillRaw = Get-Content -LiteralPath $skill -Raw -Encoding UTF8
+    $body = [regex]::Replace($skillRaw, '(?s)^﻿?---.*?\r?\n---\r?\n', '')
+    $preamble = @'
+# Multi-Agent Master Orchestrator 核心協議
+
+> 這份檔案由 `install.ps1` 從 `skills/multi-agent-dispatch/SKILL.md` **自動生成**（已列入 .gitignore）。
+> 派工 SOP 與模型菜單的唯一真實來源是那個 skill；**請勿手動編輯本檔**——改 skill 後重跑 `install.ps1 -Force`。
+>
+> **為什麼要生成而不是直接叫 CLAUDE.md**：worktree 是本 repo 的 checkout，
+> 若 `CLAUDE.md` 進了版控，worker 端的 `claude` 會在 worktree 裡讀到這份 SOP，
+> 誤以為自己是編排器而開始二次派工。維持 CLAUDE.md 未追蹤即可根治。
+>
+> Codex / Cursor 使用者：改生成成 `AGENTS.md` 或 `.cursorrules`（同樣別進版控）。
+
+---
+
+'@
+    [IO.File]::WriteAllText($claudeMd, ($preamble + $body), (New-Object Text.UTF8Encoding $false))
+    OK "已從 skill 生成 CLAUDE.md（單一來源）"
 }
 
 # --- 7. .mcp.json ------------------------------------------------------

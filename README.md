@@ -103,7 +103,7 @@ Python、git、Worker CLI 則只偵測不安裝。
 （很容易做完一個才派下一個、或跳過測試就宣稱完成）；只有 Skill，那就只是一份做不到的文件。
 
 Skill 隨 plugin 一起安裝，使用者提到平行派工／多 worker 分工時自動觸發；
-走路徑 (b) 的話，`install.ps1` 仍會把 `MASTER_SOP.md` 複製成 `CLAUDE.md`。
+走路徑 (b) 的話，`install.ps1` 會從 `skills/multi-agent-dispatch/SKILL.md` 生成 `CLAUDE.md`（菜單同源，不會分裂）。
 
 ## 工具
 
@@ -135,8 +135,7 @@ Skill 隨 plugin 一起安裝，使用者提到平行派工／多 worker 分工�
 | --- | --- |
 | [INSTALL.md](INSTALL.md) | 安裝與部署、工具清單、常見問題 |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | 架構原理、設計決策、實測驗證紀錄 |
-| [MASTER_SOP.md](MASTER_SOP.md) | Master 的系統指示詞（`install.ps1` 會複製成 `CLAUDE.md`） |
-| [skills/multi-agent-dispatch/SKILL.md](skills/multi-agent-dispatch/SKILL.md) | 派工 SOP 的 Skill 版，隨 plugin 安裝、按需觸發 |
+| [skills/multi-agent-dispatch/SKILL.md](skills/multi-agent-dispatch/SKILL.md) | 派工 SOP 與模型菜單的**唯一真實來源**：隨 plugin 安裝、按需觸發；repo 模式下 `install.ps1` 也從它生成 `CLAUDE.md` |
 
 ## License
 

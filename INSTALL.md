@@ -79,7 +79,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 3. 偵測 4 種 Worker + `git` + `docker`，解析出**真正的 `.exe` 路徑**
 4. 沒有 git repo 就 `git init` 並建立初始 commit（worktree 需要至少一個 commit）
 5. 寫 `.gitignore`
-6. 把 `MASTER_SOP.md` 複製成 `CLAUDE.md`
+6. 從 `skills/multi-agent-dispatch/SKILL.md` 生成 `CLAUDE.md`（派工菜單的唯一來源就是這個 skill）
 7. 產生機器專屬的 `.mcp.json`。**若根目錄的 `.mcp.json` 內含 `${CLAUDE_PLUGIN_ROOT}`（＝plugin 版設定），
    則保留原檔不覆寫**，改印出一行 `claude mcp add agent-hub -e ... -- ...` 讓你自行決定要不要另外加成專案級設定
 8. **自我測試**：跑 `test_hub.py` —— 匯入 hub、驗證 `list_jobs` 的狀態表、拒絕未啟用的 Worker、未知 job id 的處理
@@ -101,7 +101,8 @@ git init && git add -A && git commit -m init   # 已是 repo 就跳過
 ```
 
 ```bash
-cp MASTER_SOP.md CLAUDE.md
+# 從 skill 生成 CLAUDE.md（剝掉開頭的 YAML frontmatter；菜單只維護 skill 一份）
+awk 'NR==1 && $0=="---"{fm=1; next} fm && $0=="---"{fm=0; next} !fm' skills/multi-agent-dispatch/SKILL.md > CLAUDE.md
 printf '.mcp.json\nCLAUDE.md\n.hub_logs/\n.hub_prompt.md\nwt-*/\nNOTES.md\n' >> .gitignore
 ```
 
@@ -158,7 +159,7 @@ claude mcp list
 | 檔案 | 進版控 | 說明 |
 | --- | --- | --- |
 | `mcp_worker_hub.py` | ✅ | MCP Server 本體，7 個工具 |
-| `MASTER_SOP.md` | ✅ | Master 系統指示詞範本 |
+| `skills/multi-agent-dispatch/SKILL.md` | ✅ | 派工 SOP 與模型菜單的**唯一真實來源**；plugin 隨附自動同步，`install.ps1` 也從它生成 `CLAUDE.md` |
 | `test_hub.py` | ✅ | 自我測試，`py -3 test_hub.py` 可單獨跑 |
 | `install.ps1` | ✅ | 部署腳本（**必須 UTF-8 with BOM**，見常見問題） |
 | `ARCHITECTURE.md` | ✅ | 架構、安全模型、實測紀錄 |

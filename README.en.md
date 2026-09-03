@@ -89,7 +89,7 @@ This project provides two things together, and both are required:
 
 **MCP provides capability, Skill provides instructions.** With only MCP, the Master has the tools but not the correct workflow (it easily ends up finishing one task before dispatching the next, or claiming completion without testing). With only the Skill, it's just a document that can't actually be executed.
 
-The Skill is installed together with the plugin and triggers automatically whenever the user mentions parallel dispatch or splitting work across multiple workers. If using path (b), `install.ps1` will still copy `MASTER_SOP.md` to `CLAUDE.md`.
+The Skill is installed together with the plugin and triggers automatically whenever the user mentions parallel dispatch or splitting work across multiple workers. If using path (b), `install.ps1` generates `CLAUDE.md` from `skills/multi-agent-dispatch/SKILL.md` (same single source, so the menu can't drift).
 
 ## Tools
 
@@ -121,8 +121,7 @@ Isolation is **layered and incomplete** — please understand this before use:
 |---|---|
 | [INSTALL.md](INSTALL.md) | Installation and deployment, tool list, FAQ |
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Architecture rationale, design decisions, validation records |
-| [MASTER_SOP.md](MASTER_SOP.md) | Master's system prompt (`install.ps1` copies this to `CLAUDE.md`) |
-| [skills/multi-agent-dispatch/SKILL.md](skills/multi-agent-dispatch/SKILL.md) | Skill version of the dispatch SOP, installed with the plugin and triggered on demand |
+| [skills/multi-agent-dispatch/SKILL.md](skills/multi-agent-dispatch/SKILL.md) | **Single source of truth** for the dispatch SOP and model menu: installed with the plugin and triggered on demand; in repo mode `install.ps1` also generates `CLAUDE.md` from it |
 
 ## License
 

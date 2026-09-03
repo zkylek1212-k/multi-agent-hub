@@ -468,7 +468,7 @@ if __name__ == "__main__":
 
 ## 3. 強健的系統指示詞 (Robust System Prompts)
 
-這段 Prompt 在 repo 裡是 [`MASTER_SOP.md`](MASTER_SOP.md)，`install.ps1` 會自動複製成 `CLAUDE.md`。
+這段 Prompt 的唯一來源是 [`skills/multi-agent-dispatch/SKILL.md`](skills/multi-agent-dispatch/SKILL.md)（plugin 隨附、自動同步）；repo 模式下 `install.ps1` 會從它生成 `CLAUDE.md`。
 手動放置時：
 - **Claude Code**（CLI 與 desktop app 同一套設定）：專案根目錄的 `CLAUDE.md`。
 - **Claude Desktop 聊天 app**：貼在「Custom Instructions」或 Project Knowledge。
