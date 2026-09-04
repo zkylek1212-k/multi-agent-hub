@@ -57,8 +57,12 @@ description: 需要把一件事拆成多個子任務、用多個 CLI agent（wor
    使用者必須隨時知道「拆了哪些工作、誰在做、做到哪、跑多久了」。
 
 ## 第三階段：沙盒驗證與收斂
-1. **安裝依賴**：先 `run_in_sandbox(command="npm ci", network=True)`（Python 專案換成
-   `pip install -r requirements.txt`）。worktree 是乾淨 checkout，不裝依賴測試必定失敗。
+1. **安裝依賴**：先 `run_in_sandbox(command="npm ci", network=True)`。worktree 是乾淨
+   checkout，不裝依賴測試必定失敗。`image` 留空會依 worktree 內容自動選（有
+   `requirements.txt`／`*.py` → `python:3.12-alpine`，否則 `node:22-alpine`）。
+   **Python 專案注意**：容器 `--rm` 不留 site-packages，所以裝依賴要落在掛載的 `/app`：
+   `run_in_sandbox(command="pip install --target .deps -r requirements.txt", network=True)`，
+   下一步測試再用 `PYTHONPATH=/app/.deps python -m pytest`。
 2. **安全測試**：再 `run_in_sandbox(command="npm test", network=False)`。
    **嚴禁**在沒跑過測試的情況下猜測程式碼是否正確。
 3. **打回重練**：測試 Failed 時，把錯誤訊息包進 prompt，**對同一個 worktree** 重新
@@ -75,7 +79,10 @@ description: 需要把一件事拆成多個子任務、用多個 CLI agent（wor
    不要嘗試自行解衝突（本 hub 沒有編輯檔案的工具）。
 6. **清理**：合併完成後 `git worktree remove --force <絕對路徑>`，再 `git branch -D worker-task-N`。
    若 remove 回報 `failed to delete '.git/worktrees/...': Permission denied`
-   （OneDrive／防毒鎖住目錄時很常見），改跑 `git worktree prune` 收尾，不要當成失敗。
+   （OneDrive／防毒鎖住目錄時很常見），**`git worktree prune` 通常一樣被擋、別指望它**；
+   改直接刪掉殘留 metadata：`rm -rf .git/worktrees/<name>`（PowerShell：
+   `Remove-Item -Recurse -Force .git\worktrees\<name>`），再跑一次 `git worktree prune` 收尾。
+   工作區目錄 `<絕對路徑>` 若當下也刪不掉，等 OneDrive 放手後再刪即可，不影響主線與已合併成果。
 7. **收尾回報**：全部合併完成後，把第一階段那張表最後更新一次（狀態全轉 `已合併`
    或標出失敗項），連同「哪些檔案被改動」一起給使用者。
 

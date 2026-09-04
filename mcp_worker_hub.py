@@ -275,7 +275,8 @@ async def delegate_to_worker(
             elif worker_type == "claude_cli":
                 cmd_args = [*_RESOLVED[worker_type], HANDOFF]
                 if model:
-                    custom_env = {"CLAUDE_MODEL": model}
+                    cmd_args.insert(1, "--model")   # claude 讀 --model 旗標，
+                    cmd_args.insert(2, model)       # 不是 CLAUDE_MODEL 環境變數
             else:
                 cmd_args = [*_RESOLVED[worker_type], HANDOFF]
 
@@ -362,18 +363,25 @@ async def check_job_status(job_id: str) -> str:
 async def run_in_sandbox(
     command: str,
     worktree_path: str,
-    image: str = "node:22-alpine",
+    image: str | None = None,
     network: bool = False,
     timeout_s: int = 900,
 ) -> str:
     """在容器中對 worktree 執行指令。command 例：'npm test'、'pytest -q'。
 
+    image 留空時依 worktree 內容自動選：有 requirements.txt / pyproject.toml / *.py
+    用 python:3.12-alpine，否則 node:22-alpine。選錯就明確傳 image= 覆寫。
+
     network 預設關閉。worktree 是乾淨 checkout，沒有 node_modules / venv，
-    所以流程是：先 network=True 跑安裝（'npm ci'），再 network=False 跑測試。
+    所以流程是：先 network=True 跑安裝（node 用 'npm ci'；python 因容器 --rm 不留
+    site-packages，用 'pip install --target .deps <pkgs>' 裝進掛載的 /app，測試時再
+    以 PYTHONPATH=/app/.deps 跑），再 network=False 跑測試。
 
     注意：worktree 的 .git 是指向主 repo 的絕對路徑檔，容器內解析不到，
     因此容器內不要跑任何 git 指令。
     """
+    if image is None:
+        image = _pick_image(worktree_path)
     abs_path = Path(worktree_path).resolve().as_posix()   # Windows 的 D:\x 轉成 D:/x
     argv = [
         "docker", "run", "--rm",
@@ -392,6 +400,15 @@ async def run_in_sandbox(
 # server 跑在 hub 進程內的 daemon thread，直接讀記憶體的 jobs dict + tail log 檔，
 # 不需中介檔。頁面每 2 秒 fetch /api 自動刷新。open_dashboard() 由 Master 派工後呼叫。
 _dash = {"port": None}
+
+
+def _pick_image(worktree_path: str) -> str:
+    """沒指定 image 時依 worktree 內容選預設容器：Python 專案（requirements.txt／
+    pyproject.toml／有 .py）用 python:3.12-alpine，否則 node:22-alpine。"""
+    wt = Path(worktree_path)
+    py = (wt / "requirements.txt").is_file() or (wt / "pyproject.toml").is_file() \
+        or any(wt.glob("*.py"))
+    return "python:3.12-alpine" if py else "node:22-alpine"
 
 
 def _log_tail(path: str, n: int = 6) -> str:
