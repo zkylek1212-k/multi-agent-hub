@@ -243,3 +243,22 @@ job 狀態存在記憶體。完整 log 還在 `.hub_logs/<job_id>.log`，prompt 
 - **Worker 的輸出會進入 Master 的 context**，被污染的內容可能影響 Master 判斷。SOP 有禁令但那是軟性防線。
 
 **只在你信任的專案上使用這套流程。**
+
+## 8. 讓 Codex 當 Master（實驗性）
+
+agent-hub 是標準 MCP server（stdio、純 stdlib），與 provider 無關——任何支援 MCP 的 client 都能驅動它，所以 **Codex 也能當 Master**。Codex 不讀 Claude plugin，也不展開 `${CLAUDE_PLUGIN_ROOT}`，所以要另接兩條線：
+
+1. **在固定位置 clone 一份本 repo**（別指向 plugin 快取，那條路徑含版本號、重裝會被重建），在該目錄跑：
+
+   ```powershell
+   .\install.ps1 -AsCodex
+   ```
+
+   這會：從 `SKILL.md` 同源生成 **`AGENTS.md`**（Codex 讀這個檔當 Master SOP，內容與 `CLAUDE.md` 相同、同樣不進版控），並在結尾印出可貼進 `~/.codex/config.toml` 的 `[mcp_servers.agent-hub]` 片段（含本機絕對路徑與 `HUB_BIN_*`）。
+
+2. **把那段片段貼進 `~/.codex/config.toml`**，然後在該目錄啟動 `codex`，確認連上 agent-hub 後呼叫 `get_active_workers`。
+
+注意：
+- 派工菜單仍是 `SKILL.md` **單一來源**，`AGENTS.md` 由它生成，不會與 Claude 版分裂。
+- `open_dashboard` 的懸浮視窗由 hub 自己彈出，**與 Master 無關**，Codex 一樣看得到；SOP 裡「Browser pane」是 Claude 專屬字眼，Codex 若視窗沒彈出就自己拿備援 URL 開瀏覽器。
+- 上一節的安全界線同樣適用。
