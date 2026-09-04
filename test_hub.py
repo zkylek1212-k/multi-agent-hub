@@ -55,6 +55,26 @@ def main():
     assert "查無此 job" in r, r
     print("[5] 未知 job id 已回報 OK")
 
+    # 6. Windows 反斜線路徑不能被 shlex 吃掉（吃掉的話 git 會在錯的地方建 worktree）
+    toks = h._split_args(r'worktree add C:\proj\wt1 worker-task-1')
+    assert toks[2:] == [r"C:\proj\wt1", "worker-task-1"], toks
+    assert h._split_args('diff -- "src/a b.py"')[-1] == "src/a b.py", "引號沒去掉"
+    print("[6] 反斜線路徑拆解 OK")
+
+    # 7. 儀表板 server 不得搶佔已被佔用的 port（Windows 的 SO_REUSEADDR 會允許，
+    #    搶到的話多個 session 的 hub 會全綁 8787，懸浮視窗顯示到別人的 job）
+    first = h.ThreadingHTTPServer(("127.0.0.1", 0), h._DashHandler)
+    try:
+        port = first.server_address[1]
+        try:
+            h._DashServer(("127.0.0.1", port), h._DashHandler).server_close()
+            raise AssertionError(f"_DashServer 搶佔了已被佔用的 port {port}")
+        except OSError:
+            pass
+    finally:
+        first.server_close()
+    print("[7] 儀表板 port 不會被搶佔 OK")
+
     print("\nSMOKE ok active=" + ",".join(h.ACTIVE))
 
 

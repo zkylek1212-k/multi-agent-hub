@@ -1,0 +1,20 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - run: pip install "mcp[cli]"
+      # 只編譯不 import，所以 dashboard_float.py 的 tkinter 在 runner 缺席也沒關係
+      - run: python -m py_compile mcp_worker_hub.py dashboard_float.py test_hub.py
+      # test_hub.py 全用假 job、不需要真的 worker，空的 ACTIVE 也會過
+      - run: python test_hub.py
