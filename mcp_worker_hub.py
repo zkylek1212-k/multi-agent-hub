@@ -476,6 +476,14 @@ tick();setInterval(tick,2000);
 </script></body></html>"""
 
 
+class _DashServer(ThreadingHTTPServer):
+    # 預設的 allow_reuse_address 在 Windows 等於 SO_REUSEADDR，而 Windows 的
+    # SO_REUSEADDR 允許搶佔「已經有人在 listen」的 port（Linux 才會擋）。
+    # 開著的話 open_dashboard 的 8787→8806 掃描永遠停在 8787，多個 session 的
+    # hub 全綁同一個 port，懸浮視窗會隨機顯示到別的 hub 的 job。
+    allow_reuse_address = False
+
+
 class _DashHandler(BaseHTTPRequestHandler):
     def log_message(self, *a):   # 靜音：預設會往 stderr 印每個請求
         pass
@@ -528,7 +536,7 @@ async def open_dashboard() -> str:
         srv = None
         for p in range(8787, 8807):
             try:
-                srv = ThreadingHTTPServer(("127.0.0.1", p), _DashHandler)
+                srv = _DashServer(("127.0.0.1", p), _DashHandler)
                 _dash["port"] = p
                 break
             except OSError:
