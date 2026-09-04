@@ -17,6 +17,10 @@
     以 Claude Code plugin 安裝時用這個：plugin 目錄不是 git repo，也已自帶 .mcp.json 與 skill，
     不加這個旗標會在 plugin 快取裡 git init，並多註冊一份 local scope 的 agent-hub（重複載入）。
 
+.PARAMETER AsCodex
+    讓 Codex 當 Master：額外從 SKILL.md 生成 AGENTS.md（Codex 讀這個檔，不讀 CLAUDE.md），
+    並在最後印出可貼進 ~/.codex/config.toml 的 agent-hub MCP 註冊片段（絕對路徑）。
+
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\install.ps1
 
@@ -28,7 +32,8 @@
 param(
     [switch]$SkipDeps,
     [switch]$Force,
-    [switch]$DepsOnly
+    [switch]$DepsOnly,
+    [switch]$AsCodex
 )
 
 $ErrorActionPreference = 'Stop'
@@ -203,7 +208,7 @@ Step 5 "寫入 .gitignore"
 # 一旦進版控，worker 端的 claude 會在 worktree 讀到 Master SOP，
 # 誤以為自己是編排器並再次派工（遞迴分裂）。
 # 注意：.mcp.json 配合 plugin 規格需進版控，不再列入 .gitignore。
-$want = @('CLAUDE.md', '.hub_logs/', '.hub_prompt.md', 'wt-*/', 'NOTES.md', '__pycache__/', '*.bak', '.claude/settings.local.json')
+$want = @('CLAUDE.md', 'AGENTS.md', '.hub_logs/', '.hub_prompt.md', 'wt-*/', 'NOTES.md', '__pycache__/', '*.bak', '.claude/settings.local.json')
 $gi = Join-Path $root '.gitignore'
 $existing = @()
 if (Test-Path -LiteralPath $gi) { $existing = @(Get-Content -LiteralPath $gi) }
@@ -222,15 +227,16 @@ Step 6 "從 multi-agent-dispatch skill 生成 CLAUDE.md（唯一菜單來源）"
 # plugin 用戶直接吃這個 skill（隨 plugin 更新自動同步），repo 用戶則由這裡
 # 從同一份 skill 生成 CLAUDE.md —— 兩條路徑同源，菜單不會分裂。
 $skill = Join-Path $root 'skills/multi-agent-dispatch/SKILL.md'
-$claudeMd = Join-Path $root 'CLAUDE.md'
 if (-not (Test-Path -LiteralPath $skill)) { Die "找不到 skills/multi-agent-dispatch/SKILL.md，repo 不完整。" }
+# 剝掉 skill 的 YAML frontmatter，得到 SOP 本體（CLAUDE.md 與 AGENTS.md 共用同一份）。
+# 必須 -Encoding UTF8：PS 5.1 預設用系統 ANSI(CP950) 讀，會把 UTF-8 中文打成亂碼。
+$skillRaw = Get-Content -LiteralPath $skill -Raw -Encoding UTF8
+$body = [regex]::Replace($skillRaw, '(?s)^﻿?---.*?\r?\n---\r?\n', '')
+
+$claudeMd = Join-Path $root 'CLAUDE.md'
 if ((Test-Path -LiteralPath $claudeMd) -and (-not $Force)) {
     Warn "CLAUDE.md 已存在，保留原檔（要覆蓋請加 -Force）"
 } else {
-    # 剝掉 skill 的 YAML frontmatter，換上 CLAUDE.md 專屬前言後寫出。
-    # 必須 -Encoding UTF8：PS 5.1 預設用系統 ANSI(CP950) 讀，會把 UTF-8 中文打成亂碼。
-    $skillRaw = Get-Content -LiteralPath $skill -Raw -Encoding UTF8
-    $body = [regex]::Replace($skillRaw, '(?s)^﻿?---.*?\r?\n---\r?\n', '')
     $preamble = @'
 # Multi-Agent Master Orchestrator 核心協議
 
@@ -248,6 +254,29 @@ if ((Test-Path -LiteralPath $claudeMd) -and (-not $Force)) {
 '@
     [IO.File]::WriteAllText($claudeMd, ($preamble + $body), (New-Object Text.UTF8Encoding $false))
     OK "已從 skill 生成 CLAUDE.md（單一來源）"
+}
+
+# -AsCodex：同源生成 AGENTS.md（Codex 讀這個檔當 Master 指示，不讀 CLAUDE.md）。
+if ($AsCodex) {
+    $agentsMd = Join-Path $root 'AGENTS.md'
+    if ((Test-Path -LiteralPath $agentsMd) -and (-not $Force)) {
+        Warn "AGENTS.md 已存在，保留原檔（要覆蓋請加 -Force）"
+    } else {
+        $codexPreamble = @'
+# Multi-Agent Master Orchestrator 核心協議（Codex Master）
+
+> 這份檔案由 `install.ps1 -AsCodex` 從 `skills/multi-agent-dispatch/SKILL.md` **自動生成**（已列入 .gitignore）。
+> 唯一真實來源是那個 skill；**請勿手動編輯**——改 skill 後重跑 `install.ps1 -AsCodex -Force`。
+>
+> Codex 讀 `AGENTS.md` 當 Master 指示；agent-hub MCP server 需另在 `~/.codex/config.toml`
+> 註冊（見本次 install 輸出的片段）。維持 AGENTS.md 未追蹤，避免 worktree 內的 worker 誤讀成主。
+
+---
+
+'@
+        [IO.File]::WriteAllText($agentsMd, ($codexPreamble + $body), (New-Object Text.UTF8Encoding $false))
+        OK "已從 skill 生成 AGENTS.md（Codex Master SOP）"
+    }
 }
 
 # --- 7. .mcp.json ------------------------------------------------------
@@ -351,7 +380,9 @@ if ($DepsOnly) {
     Write-Host "  模式          : -DepsOnly（MCP 設定與 SOP 由 plugin 提供）"
 } else {
     Write-Host "  MCP 設定      : .mcp.json（Claude Code 專案級）"
-    Write-Host "  Master SOP    : CLAUDE.md"
+    $sopLine = "  Master SOP    : CLAUDE.md"
+    if ($AsCodex) { $sopLine += " + AGENTS.md（Codex）" }
+    Write-Host $sopLine
 }
 if (-not $hasDocker) {
     Write-Host "`n注意：本機沒有 Docker，run_in_sandbox 會回 rc=127。" -ForegroundColor Yellow
@@ -364,3 +395,18 @@ if ($DepsOnly) {
 }
 Write-Host "  /mcp                    # 確認 agent-hub 是 connected" -ForegroundColor White
 Write-Host "  請呼叫 get_active_workers" -ForegroundColor White
+
+if ($AsCodex -and -not $DepsOnly) {
+    $envLine = (($envMap.GetEnumerator() | ForEach-Object { "$($_.Key) = `"$($_.Value)`"" }) -join ", ")
+    Write-Host "`n--- Codex Master 設定 ------------------------------------------" -ForegroundColor Cyan
+    Write-Host "1) 把下面這段貼進 ~/.codex/config.toml（絕對路徑，Codex 不展開變數）：" -ForegroundColor White
+    Write-Host ""
+    Write-Host "[mcp_servers.agent-hub]" -ForegroundColor Gray
+    Write-Host "command = `"$pyExe`"" -ForegroundColor Gray
+    $argsToml = (($pyArgs + @($hubPyPath)) | ForEach-Object { "`"$_`"" }) -join ", "
+    Write-Host "args = [$argsToml]" -ForegroundColor Gray
+    Write-Host "env = { $envLine }" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "2) AGENTS.md 已生成在本目錄，Codex 會自動讀它當 Master SOP。" -ForegroundColor White
+    Write-Host "   在本目錄啟動 codex，確認它連上 agent-hub 後呼叫 get_active_workers。" -ForegroundColor White
+}
