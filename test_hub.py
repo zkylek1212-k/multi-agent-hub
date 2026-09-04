@@ -4,6 +4,7 @@
 """
 
 import asyncio
+import os
 import sys
 
 import mcp_worker_hub as h
@@ -55,9 +56,12 @@ def main():
     assert "查無此 job" in r, r
     print("[5] 未知 job id 已回報 OK")
 
-    # 6. Windows 反斜線路徑不能被 shlex 吃掉（吃掉的話 git 會在錯的地方建 worktree）
-    toks = h._split_args(r'worktree add C:\proj\wt1 worker-task-1')
-    assert toks[2:] == [r"C:\proj\wt1", "worker-task-1"], toks
+    # 6. Windows 反斜線路徑不能被 shlex 吃掉（吃掉的話 git 會在錯的地方建 worktree）。
+    #    這是 nt 專屬行為：_split_args 只在 Windows 保留反斜線；POSIX 的 shlex 本來就把
+    #    反斜線當跳脫，且 POSIX 不用反斜線路徑，故該斷言只在 nt 驗證（否則 Linux CI 必失敗）。
+    if os.name == "nt":
+        toks = h._split_args(r'worktree add C:\proj\wt1 worker-task-1')
+        assert toks[2:] == [r"C:\proj\wt1", "worker-task-1"], toks
     assert h._split_args('diff -- "src/a b.py"')[-1] == "src/a b.py", "引號沒去掉"
     print("[6] 反斜線路徑拆解 OK")
 
