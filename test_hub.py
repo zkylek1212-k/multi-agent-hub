@@ -75,6 +75,14 @@ def main():
     assert h._summarize_output('{"foo":1}') == '{"foo":1}', "沒 response 應原樣"
     print("[6b] _summarize_output 抽 status+response OK")
 
+    # 6c. _pick_image：依 worktree 內容選容器
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        assert h._pick_image(d) == "node:22-alpine", "空目錄應回 node"
+        (h.Path(d) / "a.py").write_text("x", encoding="utf-8")
+        assert h._pick_image(d) == "python:3.12-alpine", "有 .py 應回 python"
+    print("[6c] _pick_image 選容器 OK")
+
     # 7. 儀表板 server 不得搶佔已被佔用的 port（Windows 的 SO_REUSEADDR 會允許，
     #    搶到的話多個 session 的 hub 會全綁 8787，懸浮視窗顯示到別人的 job）
     first = h.ThreadingHTTPServer(("127.0.0.1", 0), h._DashHandler)
