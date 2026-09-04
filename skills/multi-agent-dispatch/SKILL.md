@@ -85,10 +85,16 @@ description: 需要把一件事拆成多個子任務、用多個 CLI agent（wor
 
 ## 派工 Prompt 的撰寫規範（控制 context 成本）
 派給 Worker 的 prompt 必須包含以下兩條約束：
-> 「請將詳細說明、設計理由與過程寫入 worktree 內的 `NOTES.md`；
->  終端輸出只需回報：改動的檔案清單 + 一句話結論，不要輸出完整程式碼。
+> 「終端輸出只需回報：改動的檔案清單 + 一句話結論，不要輸出完整程式碼。
+>  詳細設計理由與過程請寫進 commit 訊息本文（第二段以後），不要另開 `NOTES.md`。
 >  不要修改或提交 `.hub_prompt.md`。」
-> 「完成後**務必**在 worktree 內執行 `git add -A`，再 `git commit`（訊息簡述本次改動）。」
+> 「完成後**務必**在 worktree 內執行 `git add -A`，再 `git commit`（第一行簡述改動，
+>  空一行後在本文寫設計理由與過程）。」
+
+設計理由放 commit 本文、不放 `NOTES.md`：`NOTES.md` 一旦寫在 worktree 又不 commit，
+第三階段清理 `git worktree remove --force` 會把它整份刪掉；就算 commit 了，
+每個子任務都叫 `NOTES.md`，多分支 merge 必撞檔名。commit 本文隨 merge 一起收斂、
+不佔工作區、不撞名——Master 用 `git log worker-task-N` 就能讀到理由。
 
 第二條不可省略：Master 是靠 `git merge --no-ff worker-task-N` 收斂成果的。
 worker 不 commit，分支上就沒有新 commit，Master 無從 merge；

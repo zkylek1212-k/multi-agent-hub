@@ -4,7 +4,6 @@ CLAUDE.md
 .hub_logs/
 .hub_prompt.md
 wt-*/
-NOTES.md
 __pycache__/
 *.bak
 .claude/settings.local.json

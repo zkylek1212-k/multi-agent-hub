@@ -60,7 +60,9 @@ PROMPT_FILE = ".hub_prompt.md"
 HANDOFF = ("Read the file " + PROMPT_FILE + " in the current directory "
            "and carry out the task described in it.")
 
-LOG_DIR = Path(os.environ.get("HUB_LOG_DIR", ".hub_logs"))
+# 相對路徑會綁到 hub 進程的 cwd（stdio 下不可預測），log 會散落各處。
+# 錨定到本檔所在目錄，落點才確定；仍可用 HUB_LOG_DIR 覆寫。
+LOG_DIR = Path(os.environ.get("HUB_LOG_DIR") or (Path(__file__).parent / ".hub_logs"))
 LOG_DIR.mkdir(parents=True, exist_ok=True)
 WAIT_SLICE = int(os.environ.get("HUB_WAIT_SLICE", "45"))
 
@@ -174,6 +176,24 @@ def _tail(text: str, n: int = 2000) -> str:
     return f"...（前 {len(text) - n} 字省略，完整內容見 log 檔）...\n{text[-n:]}"
 
 
+def _summarize_output(out: str) -> str:
+    """agy/claude 的 --output-format json 會回一大包（conversation_id、usage、
+    duration…）灌爆 Master 的 context。只抽 status + response 這兩個有用欄位；
+    不是 JSON（或抽不到）就原樣 _tail。完整內容仍留在 log 檔。"""
+    s = out.strip()
+    if not (s.startswith("{") and s.endswith("}")):
+        return _tail(out)
+    try:
+        d = json.loads(s)
+    except (json.JSONDecodeError, ValueError):
+        return _tail(out)
+    resp = d.get("response") or d.get("result")
+    if resp is None:
+        return _tail(out)
+    status = d.get("status", "")
+    return _tail((f"[{status}] " if status else "") + str(resp))
+
+
 # --- Tools ------------------------------------------------------------
 @mcp.tool()
 async def get_active_workers() -> str:
@@ -262,7 +282,7 @@ async def delegate_to_worker(
             code, out = await _exec(cmd_args,
                                     cwd=working_dir, timeout=timeout_s, log=log_path, env=custom_env)
             head = "Completed" if code == 0 else f"Failed (rc={code})"
-            jobs[job_id]["state"] = f"{head}\n{_tail(out)}"
+            jobs[job_id]["state"] = f"{head}\n{_summarize_output(out)}"
         except Exception as e:   # 背景 task 的例外預設會被吞掉，必須自己接住
             jobs[job_id]["state"] = f"Crashed: {e!r}"
         finally:
@@ -552,5 +572,24 @@ async def open_dashboard() -> str:
     return f"{note}\n備援 URL（懸浮視窗看不到時用瀏覽器開）：{url}"
 
 
+def _die_with_parent() -> None:
+    """父進程（Claude Code session）結束時自我了斷。stdio 下 stdin 歸 MCP server
+    所有、不能自己讀來偵測 EOF，所以改盯父進程 handle：session 一關就 os._exit，
+    不然殭屍 hub 會一直佔著 dashboard port 與 log 目錄（實測同時三個殘留進程）。"""
+    ppid = os.getppid()
+    if os.name == "nt":
+        import ctypes
+        SYNCHRONIZE, INFINITE = 0x00100000, 0xFFFFFFFF
+        h = ctypes.windll.kernel32.OpenProcess(SYNCHRONIZE, False, ppid)
+        if not h:                       # 拿不到 handle 就放棄看門狗，不影響正常運作
+            return
+        ctypes.windll.kernel32.WaitForSingleObject(h, INFINITE)  # 阻塞到父進程結束
+    else:
+        while os.getppid() == ppid:     # POSIX：父死後會被 reparent，ppid 就變了
+            time.sleep(3)
+    os._exit(0)
+
+
 if __name__ == "__main__":
+    threading.Thread(target=_die_with_parent, daemon=True).start()
     mcp.run(transport="stdio")

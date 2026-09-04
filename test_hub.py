@@ -65,6 +65,16 @@ def main():
     assert h._split_args('diff -- "src/a b.py"')[-1] == "src/a b.py", "引號沒去掉"
     print("[6] 反斜線路徑拆解 OK")
 
+    # 6b. _summarize_output：JSON 只抽 status+response，非 JSON 原樣
+    big = ('{"conversation_id":"x","status":"SUCCESS","response":"改了 a.py",'
+           '"usage":{"cache_read_tokens":1412215},"duration_seconds":241}')
+    s = h._summarize_output(big)
+    assert "改了 a.py" in s and "SUCCESS" in s, s
+    assert "cache_read_tokens" not in s and "conversation_id" not in s, "usage 沒被濾掉"
+    assert h._summarize_output("not json at all") == "not json at all"
+    assert h._summarize_output('{"foo":1}') == '{"foo":1}', "沒 response 應原樣"
+    print("[6b] _summarize_output 抽 status+response OK")
+
     # 7. 儀表板 server 不得搶佔已被佔用的 port（Windows 的 SO_REUSEADDR 會允許，
     #    搶到的話多個 session 的 hub 會全綁 8787，懸浮視窗顯示到別人的 job）
     first = h.ThreadingHTTPServer(("127.0.0.1", 0), h._DashHandler)
