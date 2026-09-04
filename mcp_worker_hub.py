@@ -105,6 +105,16 @@ _tasks: set[asyncio.Task] = set()   # 保留 task 強參考，否則背景任務
 _HUB: dict = {"started": time.monotonic(), "events": []}
 
 
+def _split_args(args: str) -> list[str]:
+    """拆解指令字串。Windows 上 POSIX 模式的 shlex 會把反斜線當跳脫字元吃掉，
+    `C:\\proj\\wt1` 會變成 `C:projwt1`（git 會拿它當 drive-relative path 亂建目錄），
+    所以 nt 改用非 POSIX 模式再自己去引號。"""
+    if os.name != "nt":
+        return shlex.split(args)
+    toks = shlex.split(args, posix=False)
+    return [t[1:-1] if len(t) > 1 and t[0] == t[-1] and t[0] in "\"'" else t for t in toks]
+
+
 def _hub_event(text: str) -> None:
     _HUB["events"].append((time.time(), text))
     del _HUB["events"][:-30]   # 只留最近 30 筆
@@ -186,7 +196,7 @@ async def git(args: str, repo: str) -> str:
     """
     sub = args.split()[0] if args.split() else args
     _hub_event(f"git {sub} …")
-    code, out = await _exec(["git", *shlex.split(args)], cwd=repo, timeout=120)
+    code, out = await _exec(["git", *_split_args(args)], cwd=repo, timeout=120)
     return f"[git rc={code}]\n{_tail(out)}"
 
 

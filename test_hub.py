@@ -55,6 +55,12 @@ def main():
     assert "查無此 job" in r, r
     print("[5] 未知 job id 已回報 OK")
 
+    # 6. Windows 反斜線路徑不能被 shlex 吃掉（吃掉的話 git 會在錯的地方建 worktree）
+    toks = h._split_args(r'worktree add C:\proj\wt1 worker-task-1')
+    assert toks[2:] == [r"C:\proj\wt1", "worker-task-1"], toks
+    assert h._split_args('diff -- "src/a b.py"')[-1] == "src/a b.py", "引號沒去掉"
+    print("[6] 反斜線路徑拆解 OK")
+
     print("\nSMOKE ok active=" + ",".join(h.ACTIVE))
 
 

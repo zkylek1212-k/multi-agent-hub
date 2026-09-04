@@ -27,7 +27,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 ```powershell
 py -3 test_hub.py
 ```
-> 輸出 `test_hub.py: ALL PASSED` 即代表環境與相依套件皆已就緒。
+> 結尾印出 `SMOKE ok active=...`（列出偵測到的 worker）即代表環境與相依套件皆已就緒。
 
 ---
 

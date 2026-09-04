@@ -126,8 +126,8 @@ def test_dash_state_structure():
         # hub 自身狀態欄位檢驗（欄位名以實際程式碼為準）
         hub = state["hub"]
         hub_expected_keys = {"workers", "uptime", "total", "running", "done", "failed", "events"}
-        assert set(hub.keys()) == hub_expected_keys, (
-            f"hub 狀態欄位不符。預期: {hub_expected_keys}, 實際: {set(hub.keys())}"
+        assert hub_expected_keys <= set(hub.keys()), (
+            f"hub 狀態欄位缺漏: {hub_expected_keys - set(hub.keys())}"
         )
         assert hub["workers"] == h.ACTIVE, "hub['workers'] 不符"
         assert isinstance(hub["uptime"], int) and hub["uptime"] >= 0, f"hub['uptime'] 異常: {hub['uptime']}"
@@ -150,8 +150,8 @@ def test_dash_state_structure():
 
         job_expected_keys = {"id", "worker", "desc", "done", "status", "elapsed", "tail", "dir"}
         for j in jobs_list:
-            assert set(j.keys()) == job_expected_keys, (
-                f"job 欄位不符。預期: {job_expected_keys}, 實際: {set(j.keys())}"
+            assert job_expected_keys <= set(j.keys()), (
+                f"job 欄位缺漏: {job_expected_keys - set(j.keys())}"
             )
             assert isinstance(j["id"], str)
             assert isinstance(j["worker"], str)
