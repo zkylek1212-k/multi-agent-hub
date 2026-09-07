@@ -54,7 +54,7 @@ claude plugin install multi-agent-hub@multi-agent-hub
 
 (Inside a Claude Code conversation, use `/plugin marketplace add ...` and `/plugin install ...`.)
 
-**Do not skip step three**: the plugin only ships files and MCP configuration — it does **not** install the Python dependency (`mcp[cli]`). Without it, the MCP server won't start and `agent-hub` won't show up under `/mcp`. After installing, run:
+**Do not skip step three**: the plugin only ships files and MCP configuration — it does **not** install the Python dependencies (`mcp[cli]` and `PySide6`). Without it, the MCP server won't start and `agent-hub` won't show up under `/mcp`. After installing, run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File (Get-ChildItem "$env:USERPROFILE\.claude\plugins\cache\multi-agent-hub\multi-agent-hub\*\install.ps1" | Sort-Object FullName -Descending | Select-Object -First 1).FullName -DepsOnly
@@ -84,8 +84,8 @@ This project provides two things together, and both are required:
 
 | Provides | Files |
 |---|---|
-| **MCP server** (`agent-hub`) | **Capabilities**: 7 tools for dispatch, worktree management, sandbox testing, etc. | `mcp_worker_hub.py` + `.mcp.json` |
-| **Skill** (`multi-agent-dispatch`) | **Instructions**: dispatch SOP — how to break down tasks, dispatch in parallel, and validate convergence | `skills/multi-agent-dispatch/SKILL.md` |
+| **MCP server** (`agent-hub`) | **Capabilities**: 8 tools for dispatch, worktree management, sandbox testing, real-time desktop HUD, etc. | `mcp_worker_hub.py` + `.mcp.json` |
+| **Skill** (`multi-agent-dispatch`) | **Instructions**: dispatch SOP — Solo-First triage (token saving), parallel dispatch, and validation | `skills/multi-agent-dispatch/SKILL.md` |
 
 **MCP provides capability, Skill provides instructions.** With only MCP, the Master has the tools but not the correct workflow (it easily ends up finishing one task before dispatching the next, or claiming completion without testing). With only the Skill, it's just a document that can't actually be executed.
 
@@ -102,6 +102,7 @@ The Skill is installed together with the plugin and triggers automatically whene
 | `check_job_status` | Non-blocking query of a single job |
 | `list_jobs` | Status table of all jobs: job_id / Worker / status / duration / task |
 | `run_in_sandbox` | Runs tests against a worktree inside a container (network disabled by default) |
+| `open_dashboard` | Launches always-on-top desktop HUD (PySide6 / Qt native DWM Acrylic blur, breathing pulse, dismiss via ✕/Esc/right-click) |
 
 ## ⚠️ Security Model
 

@@ -61,7 +61,7 @@ claude plugin install multi-agent-hub@multi-agent-hub
 
 （在 Claude Code 對話中則是 `/plugin marketplace add ...` 與 `/plugin install ...`。）
 
-**第三步不能省**：plugin 只帶檔案與 MCP 設定，**不會裝 Python 相依**（`mcp[cli]`）。
+**第三步不能省**：plugin 只帶檔案與 MCP 設定，**不會裝 Python 相依**（`mcp[cli]` 與 `PySide6`）。
 少了它 MCP server 起不來，`/mcp` 就看不到 `agent-hub`。裝完跑這行：
 
 ```powershell
@@ -96,8 +96,8 @@ Python、git、Worker CLI 則只偵測不安裝。
 
 | | 提供什麼 | 檔案 |
 | --- | --- | --- |
-| **MCP server**（`agent-hub`） | **能力**：派工、worktree、沙盒測試等 7 個工具 | `mcp_worker_hub.py` ＋ `.mcp.json` |
-| **Skill**（`multi-agent-dispatch`） | **指示**：派工 SOP —— 怎麼拆、怎麼平行派、怎麼驗證收斂 | `skills/multi-agent-dispatch/SKILL.md` |
+| **MCP server**（`agent-hub`） | **能力**：派工、worktree、沙盒測試、即時懸浮儀表板等 8 個工具 | `mcp_worker_hub.py` ＋ `.mcp.json` |
+| **Skill**（`multi-agent-dispatch`） | **指示**：派工 SOP —— Solo-First Triage 判斷（省 token）、怎麼平行派、怎麼驗證收斂 | `skills/multi-agent-dispatch/SKILL.md` |
 
 **MCP 給能力、Skill 給指示。** 只有 MCP，Master 拿得到工具卻不知道正確流程
 （很容易做完一個才派下一個、或跳過測試就宣稱完成）；只有 Skill，那就只是一份做不到的文件。
@@ -116,6 +116,7 @@ Skill 隨 plugin 一起安裝，使用者提到平行派工／多 worker 分工�
 | `check_job_status` | 非阻塞查詢單一 job |
 | `list_jobs` | 所有 job 的狀態表：job_id／Worker／狀態／耗時／任務 |
 | `run_in_sandbox` | 在容器中對 worktree 跑測試（網路預設關閉） |
+| `open_dashboard` | 啟動桌面即時懸浮儀表板（PySide6 / Qt 原生 DWM Acrylic 毛玻璃，呼吸燈脈動，支援 ✕/Esc/右鍵關閉） |
 
 ## ⚠️ 安全模型
 
