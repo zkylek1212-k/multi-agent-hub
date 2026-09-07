@@ -21,7 +21,7 @@ try:
     from PySide6.QtGui import QFont
     from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
     from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel,
-                                   QScrollArea, QVBoxLayout, QWidget)
+                                   QMenu, QPushButton, QScrollArea, QVBoxLayout, QWidget)
 except ImportError:
     sys.stderr.write("B 方案原型需要 PySide6：pip install PySide6\n")
     sys.exit(1)
@@ -50,6 +50,40 @@ QScrollArea, #list, #scrollport { background: transparent; border: none; }
 QScrollBar:vertical { background: transparent; width: 8px; margin: 2px; }
 QScrollBar::handle:vertical { background: rgba(255,255,255,0.18); border-radius: 4px; }
 QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
+#close_btn {
+    color: #9aa0ac;
+    background: transparent;
+    border: none;
+    border-radius: 11px;
+    font-size: 13px;
+    font-weight: bold;
+    min-width: 22px;
+    max-width: 22px;
+    min-height: 22px;
+    max-height: 22px;
+}
+#close_btn:hover {
+    color: #ffffff;
+    background-color: rgba(255, 69, 58, 0.85);
+}
+#close_btn:pressed {
+    background-color: rgba(255, 69, 58, 1.0);
+}
+QMenu {
+    background-color: rgba(25, 28, 36, 0.95);
+    color: #f2f3f5;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 4px;
+}
+QMenu::item {
+    padding: 6px 18px;
+    border-radius: 4px;
+}
+QMenu::item:selected {
+    background-color: rgba(255, 69, 58, 0.75);
+    color: #ffffff;
+}
 """
 
 
@@ -92,12 +126,27 @@ class Dashboard(QWidget):
         lay.setContentsMargins(14, 12, 14, 12)
         lay.setSpacing(6)
 
+        # 頂部列：標題 + 右側關閉按鈕
+        top_bar = QHBoxLayout()
+        top_bar.setContentsMargins(0, 0, 0, 0)
+        top_bar.setSpacing(4)
+
         self.hub1 = QLabel("連線中…")
         self.hub1.setFont(QFont("Microsoft JhengHei UI", 10, QFont.Bold))
+        top_bar.addWidget(self.hub1, 1)
+
+        self.btn_close = QPushButton("✕")
+        self.btn_close.setObjectName("close_btn")
+        self.btn_close.setToolTip("關閉儀表板 (Esc)")
+        self.btn_close.setCursor(Qt.PointingHandCursor)
+        self.btn_close.clicked.connect(self.close)
+        top_bar.addWidget(self.btn_close)
+
+        lay.addLayout(top_bar)
+
         self.hub2 = QLabel("")
         self.hub2.setObjectName("mut")
         self.hub2.setWordWrap(True)
-        lay.addWidget(self.hub1)
         lay.addWidget(self.hub2)
 
         line = QFrame()
@@ -167,6 +216,20 @@ class Dashboard(QWidget):
 
     def mouseReleaseEvent(self, e):
         self._drag = None
+
+    # --- 快捷鍵 (Esc / Ctrl+W) ---
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key_Escape or (e.key() == Qt.Key_W and e.modifiers() & Qt.ControlModifier):
+            self.close()
+        else:
+            super().keyPressEvent(e)
+
+    # --- 右鍵選單 ---
+    def contextMenuEvent(self, e):
+        menu = QMenu(self)
+        act_close = menu.addAction("關閉儀表板 (Esc)")
+        act_close.triggered.connect(self.close)
+        menu.exec(e.globalPos())
 
     # --- 輪詢與渲染 ---
     def _poll(self):
