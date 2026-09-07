@@ -1,220 +1,287 @@
-"""桌面懸浮儀表板（Tkinter，always-on-top，Windows 11 毛玻璃）。
+"""桌面懸浮儀表板 —— B 方案原型（PySide6 / Qt）。
 
-由 mcp_worker_hub.py 的 open_dashboard() 以子進程彈出：
+與 A 方案（Tkinter + ctypes，見 master/A 分支）同契約、可互換：
     python dashboard_float.py <port>
-每 2 秒 fetch http://127.0.0.1:<port>/api，顯示：
-  - agent-hub 自身執行狀態（啟用 workers、uptime、running/done/failed、最近工具）
-  - 每個 job 的派工狀態（worker、描述、狀態、耗時、當下 log 尾行）
+每 2 秒 poll http://127.0.0.1:<port>/api，顯示 hub 自身狀態與各 job 卡片。
 
-純 stdlib（tkinter + ctypes + urllib），無第三方相依。
+為什麼是 Qt：Tkinter 沒有 per-pixel alpha 合成，做真磨砂得靠 -transparentcolor
+鏤空（文字毛邊、細縫點擊穿透）。Qt 原生合成 → 面板本身可半透明、文字清晰、
+無穿透、可整窗拖曳，且 macOS/Linux 也能有同款毛玻璃。代價：多一個重相依（PySide6，
+數十 MB Qt），打破本 repo「零第三方相依」的設計——所以這是「若選 B」的原型，
+預設仍走 A。
 
-外觀（比照 Apple UI，見 issue #8）：Win11 走 DWM Acrylic 毛玻璃 + 圓角 + 深色標題列
-（ctypes，仍是 stdlib）；舊系統／非 Windows 靜默退回實心深色底。
-刷新採「就地更新」——只改變動的那幾格、不整批砍掉重建，消除舊版每 tick 重建造成的閃爍。
+執行前需：pip install PySide6
 """
 import json
 import os
 import sys
-import tkinter as tk
-import urllib.request
 
-PORT = sys.argv[1] if len(sys.argv) > 1 else "8787"
-API = f"http://127.0.0.1:{PORT}/api"
+try:
+    from PySide6.QtCore import Qt, QTimer, QUrl
+    from PySide6.QtGui import QFont
+    from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
+    from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel,
+                                   QScrollArea, QVBoxLayout, QWidget)
+except ImportError:
+    sys.stderr.write("B 方案原型需要 PySide6：pip install PySide6\n")
+    sys.exit(1)
 
-# 深色玻璃調色盤。BACKDROP_GLASS 會被設成 -transparentcolor，讓 Acrylic 模糊從這些像素透出；
-# 帶文字的元件一律鋪在不透明的 PANEL / CARD 上，避免 chroma-key 造成文字毛邊。
-BACKDROP_GLASS = "#0b0e13"   # 玻璃生效時 = 透明鏤空（顯示背後模糊）
-BACKDROP_SOLID = "#111319"   # 退回實心時的底色
-PANEL = "#1b1e26"
-CARD = "#20242e"
-FG, MUT, FAINT, LINE = "#f2f3f5", "#9aa0ac", "#6b7280", "#2a2f3a"
-RUN, OK, BAD = "#ff9f0a", "#30d158", "#ff453a"   # Apple 系統色：琥珀 / 綠 / 紅
+# Apple 系統色（執行=琥珀 / 完成=綠 / 失敗=紅）
+C_RUN, C_OK, C_BAD = (255, 159, 10), (48, 209, 88), (255, 69, 58)
 
-FONT = ("Microsoft JhengHei UI", 9)
-FONT_B = ("Microsoft JhengHei UI", 10, "bold")
-FONT_S = ("Consolas", 8)
+
+def rgba(t, a=1.0):
+    return f"rgba({t[0]},{t[1]},{t[2]},{a})"
 
 
 def fmt(secs):
     return f"{secs // 60}m{secs % 60:02d}s"
 
 
-def fetch():
-    try:
-        with urllib.request.urlopen(API, timeout=2) as r:
-            return json.loads(r.read().decode("utf-8")), None
-    except Exception as e:
-        return None, e
+_QSS = """
+#glass { background-color: rgba(20,23,30,0.72); border-radius: 18px; }
+QLabel { color: #f2f3f5; background: transparent; }
+#mut   { color: #9aa0ac; }
+#faint { color: #6b7280; font-family: Consolas; font-size: 11px; }
+#desc  { font-weight: bold; font-size: 12px; }
+#chip  { color: #9aa0ac; background-color: rgba(27,30,38,0.9);
+         border-radius: 6px; padding: 1px 6px; font-family: Consolas; font-size: 11px; }
+QScrollArea, #list, #scrollport { background: transparent; border: none; }
+QScrollBar:vertical { background: transparent; width: 8px; margin: 2px; }
+QScrollBar::handle:vertical { background: rgba(255,255,255,0.18); border-radius: 4px; }
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
+"""
 
 
-def _enable_windows_glass(win):
-    """Win10/11：套 DWM Acrylic 毛玻璃 + 圓角 + 深色標題列。回傳 True 表示玻璃已生效。
-    失敗（舊系統／非 Windows／API 不存在）就靜默回 False，呼叫端改用實心深色底。"""
-    if os.name != "nt":
-        return False
-    try:
-        import ctypes
-        win.update_idletasks()
+class Dashboard(QWidget):
+    def __init__(self, port):
+        super().__init__()
+        self.api = QUrl(f"http://127.0.0.1:{port}/api")
+        self.cards = {}
+        self._drag = None
+        self._pulse_on = True
 
-        user32 = ctypes.windll.user32
-        # 64-bit HWND 一定要用 c_void_p，否則預設 c_int 會截斷 handle。
-        user32.GetParent.restype = ctypes.c_void_p
-        user32.GetParent.argtypes = [ctypes.c_void_p]
-        hwnd = user32.GetParent(win.winfo_id())
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.resize(380, 560)
+        self.move(40, 80)
+        self.setStyleSheet(_QSS)
+        self._build()
+        self._apply_glass()
 
-        class _Accent(ctypes.Structure):
-            _fields_ = [("state", ctypes.c_uint), ("flags", ctypes.c_uint),
-                        ("grad", ctypes.c_uint), ("anim", ctypes.c_uint)]
+        self.nam = QNetworkAccessManager(self)
+        self.nam.finished.connect(self._on_reply)
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._poll)
+        self.timer.start(2000)
+        self._poll()
 
-        class _WCAData(ctypes.Structure):
-            _fields_ = [("attr", ctypes.c_int),
-                        ("data", ctypes.POINTER(_Accent)),
-                        ("size", ctypes.c_size_t)]
+        self.pulse = QTimer(self)          # 執行中卡片的呼吸燈
+        self.pulse.timeout.connect(self._breathe)
+        self.pulse.start(700)
 
-        # ACCENT_ENABLE_ACRYLICBLURBEHIND=4；grad 為 AABBGGRR，AA 是玻璃染色濃度（越高越不透）。
-        accent = _Accent(4, 0, 0x99110E0B, 0)
-        payload = _WCAData(19, ctypes.pointer(accent), ctypes.sizeof(_Accent))  # WCA_ACCENT_POLICY=19
-        swca = user32.SetWindowCompositionAttribute
-        swca.argtypes = [ctypes.c_void_p, ctypes.POINTER(_WCAData)]
-        swca.restype = ctypes.c_int
-        ok = swca(hwnd, ctypes.byref(payload))
+    # --- 版面 ---
+    def _build(self):
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        glass = QFrame()
+        glass.setObjectName("glass")
+        outer.addWidget(glass)
 
-        dwm = ctypes.windll.dwmapi.DwmSetWindowAttribute
-        dwm.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.c_void_p, ctypes.c_uint]
-        dark = ctypes.c_int(1)
-        dwm(hwnd, 20, ctypes.byref(dark), ctypes.sizeof(dark))   # DWMWA_USE_IMMERSIVE_DARK_MODE
-        corner = ctypes.c_int(2)                                 # DWMWCP_ROUND
-        dwm(hwnd, 33, ctypes.byref(corner), ctypes.sizeof(corner))  # DWMWA_WINDOW_CORNER_PREFERENCE
-        return bool(ok)
-    except Exception:
-        return False
+        lay = QVBoxLayout(glass)
+        lay.setContentsMargins(14, 12, 14, 12)
+        lay.setSpacing(6)
 
+        self.hub1 = QLabel("連線中…")
+        self.hub1.setFont(QFont("Microsoft JhengHei UI", 10, QFont.Bold))
+        self.hub2 = QLabel("")
+        self.hub2.setObjectName("mut")
+        self.hub2.setWordWrap(True)
+        lay.addWidget(self.hub1)
+        lay.addWidget(self.hub2)
 
-root = tk.Tk()
-root.title("🚀 派工儀表板")
-root.attributes("-topmost", True)
-root.geometry("380x560+40+80")
-root.minsize(300, 300)
+        line = QFrame()
+        line.setFixedHeight(1)
+        line.setStyleSheet("background-color: rgba(255,255,255,0.08);")
+        lay.addWidget(line)
 
-GLASS = _enable_windows_glass(root)
-BACKDROP = BACKDROP_GLASS if GLASS else BACKDROP_SOLID
-root.configure(bg=BACKDROP)
-if GLASS:
-    try:
-        # 讓 BACKDROP 像素透明，Acrylic 模糊才透得出來。失敗就退回實心。
-        root.attributes("-transparentcolor", BACKDROP)
-    except tk.TclError:
-        GLASS = False
-        BACKDROP = BACKDROP_SOLID
-        root.configure(bg=BACKDROP)
+        self.scroll = QScrollArea()
+        self.scroll.setObjectName("scrollport")
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.listw = QWidget()
+        self.listw.setObjectName("list")
+        self.vbox = QVBoxLayout(self.listw)
+        self.vbox.setContentsMargins(0, 0, 0, 0)
+        self.vbox.setSpacing(8)
+        self.vbox.addStretch(1)          # 讓卡片靠上堆疊
+        self.scroll.setWidget(self.listw)
+        lay.addWidget(self.scroll, 1)
 
-# --- 頂部：hub 自身狀態（鋪在不透明 PANEL 上，文字才清晰）---
-head = tk.Frame(root, bg=PANEL)
-head.pack(fill="x", padx=8, pady=(8, 0))
-hub_line1 = tk.Label(head, text="連線中…", bg=PANEL, fg=FG, font=FONT_B, anchor="w")
-hub_line1.pack(fill="x", padx=10, pady=(8, 0))
-hub_line2 = tk.Label(head, text="", bg=PANEL, fg=MUT, font=FONT, anchor="w", justify="left")
-hub_line2.pack(fill="x", padx=10, pady=(0, 8))
+        self.empty = QLabel("（尚未派出任何 job）")
+        self.empty.setObjectName("mut")
+        self.empty.setAlignment(Qt.AlignCenter)
+        self.vbox.insertWidget(0, self.empty)
 
-# --- 中段：可捲動的 job 卡片 ---
-mid = tk.Frame(root, bg=BACKDROP)
-mid.pack(fill="both", expand=True, padx=6, pady=6)
-canvas = tk.Canvas(mid, bg=BACKDROP, highlightthickness=0)
-sb = tk.Scrollbar(mid, orient="vertical", command=canvas.yview)
-body = tk.Frame(canvas, bg=BACKDROP)
-body.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-canvas.create_window((0, 0), window=body, anchor="nw", width=352)
-canvas.configure(yscrollcommand=sb.set)
-canvas.pack(side="left", fill="both", expand=True)
-sb.pack(side="right", fill="y")
-root.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 120), "units"))
+        self.foot = QLabel("")
+        self.foot.setObjectName("faint")
+        self.foot.setWordWrap(True)
+        lay.addWidget(self.foot)
 
-empty = tk.Label(body, text="（尚未派出任何 job）", bg=PANEL, fg=MUT, font=FONT)
+    def _apply_glass(self):
+        """Win10/11：DWM Acrylic 讓背後真的模糊（Qt 已負責合成，文字不會毛邊）。
+        失敗／非 Windows 就靠 WA_TranslucentBackground 的半透明底，不會壞。"""
+        if os.name != "nt":
+            return
+        try:
+            import ctypes
 
-# --- 底部：hub 最近事件 ---
-footbar = tk.Frame(root, bg=PANEL)
-footbar.pack(fill="x", padx=8, pady=(0, 8))
-foot = tk.Label(footbar, text="", bg=PANEL, fg=MUT, font=FONT_S, anchor="w",
-                justify="left", wraplength=344)
-foot.pack(fill="x", padx=10, pady=6)
+            class _Accent(ctypes.Structure):
+                _fields_ = [("state", ctypes.c_uint), ("flags", ctypes.c_uint),
+                            ("grad", ctypes.c_uint), ("anim", ctypes.c_uint)]
 
-# job_id -> 該卡片的可變動元件參照。就地更新用，避免每 tick 砍掉重建（舊版閃爍主因）。
-cards = {}
+            class _WCAData(ctypes.Structure):
+                _fields_ = [("attr", ctypes.c_int),
+                            ("data", ctypes.POINTER(_Accent)),
+                            ("size", ctypes.c_size_t)]
 
+            accent = _Accent(4, 0, 0x99110E0B, 0)   # ACCENT_ENABLE_ACRYLICBLURBEHIND, AABBGGRR
+            payload = _WCAData(19, ctypes.pointer(accent), ctypes.sizeof(_Accent))
+            swca = ctypes.windll.user32.SetWindowCompositionAttribute
+            swca.argtypes = [ctypes.c_void_p, ctypes.POINTER(_WCAData)]
+            swca(ctypes.c_void_p(int(self.winId())), ctypes.byref(payload))
+        except Exception:
+            pass
 
-def _state_color(j):
-    if not j["done"]:
-        return RUN
-    return OK if j["status"].startswith("Completed") else BAD
+    # --- 拖曳（無邊框窗，整窗可拖）---
+    def mousePressEvent(self, e):
+        if e.button() == Qt.LeftButton:
+            self._drag = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            e.accept()
 
+    def mouseMoveEvent(self, e):
+        if self._drag is not None and e.buttons() & Qt.LeftButton:
+            self.move(e.globalPosition().toPoint() - self._drag)
+            e.accept()
 
-def build_card(j):
-    color = _state_color(j)
-    f = tk.Frame(body, bg=CARD, highlightbackground=color, highlightthickness=1)
-    f.pack(fill="x", pady=4, padx=2)
-    top = tk.Frame(f, bg=CARD)
-    top.pack(fill="x", padx=8, pady=(6, 0))
-    dot = tk.Label(top, text="●", bg=CARD, fg=color, font=FONT)
-    dot.pack(side="left")
-    tk.Label(top, text=j["id"], bg=CARD, fg=FAINT, font=FONT_S).pack(side="left", padx=(3, 0))
-    tk.Label(top, text=j["worker"], bg=PANEL, fg=MUT, font=FONT_S, padx=6).pack(side="right")
-    tk.Label(f, text=j["desc"], bg=CARD, fg=FG, font=FONT_B, anchor="w",
-             wraplength=320, justify="left").pack(fill="x", padx=8, pady=(2, 0))
-    stat = tk.Label(f, text="", bg=CARD, fg=MUT, font=FONT, anchor="w")
-    stat.pack(fill="x", padx=8)
-    tail = tk.Label(f, text="", bg=CARD, fg=FAINT, font=FONT_S, anchor="w",
-                    wraplength=320, justify="left")
-    tail.pack(fill="x", padx=8, pady=(0, 6))
-    return {"frame": f, "dot": dot, "stat": stat, "tail": tail, "color": color}
+    def mouseReleaseEvent(self, e):
+        self._drag = None
 
+    # --- 輪詢與渲染 ---
+    def _poll(self):
+        self.nam.get(QNetworkRequest(self.api))
 
-def update_card(c, j):
-    color = _state_color(j)
-    if color != c["color"]:
-        c["frame"].config(highlightbackground=color)
-        c["dot"].config(fg=color)
-        c["color"] = color
-    stat = "執行中" if not j["done"] else j["status"]
-    c["stat"].config(text=f"{stat} · {fmt(j['elapsed'])}")
-    tl = (j.get("tail") or "").splitlines()
-    c["tail"].config(text=tl[-1][:80] if tl else "")
+    def _on_reply(self, reply):
+        if reply.error() != QNetworkReply.NetworkError.NoError:
+            self._show_waiting()
+            reply.deleteLater()
+            return
+        raw = bytes(reply.readAll().data())
+        reply.deleteLater()
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (ValueError, UnicodeDecodeError):
+            self._show_waiting()
+            return
+        self._render(data)
 
+    def _show_waiting(self):
+        self.hub1.setText("⚠ 等待 hub 連線…")
+        self.hub2.setText(f"{self.api.toString()}\n（hub 或 session 可能尚未就緒）")
 
-def tick():
-    data, err = fetch()
-    if err is not None:
-        hub_line1.config(text="⚠ 等待 hub 連線…")
-        hub_line2.config(text=f"{API}\n（hub 或 session 可能尚未就緒）")
-    else:
+    def _render(self, data):
         h = data.get("hub", {})
-        hub_line1.config(text=f"agent-hub · uptime {fmt(h.get('uptime', 0))}")
-        hub_line2.config(
-            text=f"workers: {', '.join(h.get('workers', [])) or '—'}\n"
-                 f"jobs {h.get('total', 0)} · 執行中 {h.get('running', 0)}"
-                 f" · ✓ {h.get('done', 0)} · ✗ {h.get('failed', 0)}")
+        self.hub1.setText(f"agent-hub · uptime {fmt(h.get('uptime', 0))}")
+        self.hub2.setText(
+            f"workers: {', '.join(h.get('workers', [])) or '—'}   ·   "
+            f"jobs {h.get('total', 0)} · 執行中 {h.get('running', 0)}"
+            f" · ✓ {h.get('done', 0)} · ✗ {h.get('failed', 0)}")
 
         jobs = data.get("jobs", [])
+        self.empty.setVisible(not jobs)
         seen = set()
         for j in jobs:
             seen.add(j["id"])
-            if j["id"] in cards:
-                update_card(cards[j["id"]], j)
-            else:
-                cards[j["id"]] = build_card(j)
-        for jid in list(cards):          # 保險：移除已消失的 job（正常只增不減）
+            c = self.cards.get(j["id"])
+            if c is None:
+                c = self._make_card(j)
+                self.cards[j["id"]] = c
+            self._update_card(c, j)
+        for jid in list(self.cards):          # 保險：移除消失的 job
             if jid not in seen:
-                cards[jid]["frame"].destroy()
-                del cards[jid]
-
-        if jobs and empty.winfo_ismapped():
-            empty.pack_forget()
-        elif not jobs and not empty.winfo_ismapped():
-            empty.pack(pady=12)
+                self.cards[jid]["frame"].setParent(None)
+                del self.cards[jid]
 
         evs = h.get("events", [])
-        foot.config(text="hub 最近：" + ("；".join(e["msg"] for e in evs[-3:]) or "—"))
-    root.after(2000, tick)
+        self.foot.setText("hub 最近：" + ("；".join(e["msg"] for e in evs[-3:]) or "—"))
+
+    def _make_card(self, j):
+        f = QFrame()
+        f.setObjectName("card")
+        lay = QVBoxLayout(f)
+        lay.setContentsMargins(10, 8, 10, 8)
+        lay.setSpacing(2)
+
+        top = QHBoxLayout()
+        dot = QLabel()
+        dot.setFixedSize(10, 10)
+        idl = QLabel(j["id"])
+        idl.setObjectName("faint")
+        chip = QLabel(j["worker"])
+        chip.setObjectName("chip")
+        top.addWidget(dot)
+        top.addWidget(idl)
+        top.addStretch(1)
+        top.addWidget(chip)
+
+        desc = QLabel(j["desc"])
+        desc.setObjectName("desc")
+        desc.setWordWrap(True)
+        status = QLabel("")
+        status.setObjectName("mut")
+        tail = QLabel("")
+        tail.setObjectName("faint")
+        tail.setWordWrap(True)
+
+        lay.addLayout(top)
+        lay.addWidget(desc)
+        lay.addWidget(status)
+        lay.addWidget(tail)
+        self.vbox.insertWidget(self.vbox.count() - 1, f)   # 插在 stretch 之前
+        return {"frame": f, "dot": dot, "status": status, "tail": tail, "state": None}
+
+    def _update_card(self, c, j):
+        state = ("running" if not j["done"]
+                 else "done" if j["status"].startswith("Completed") else "failed")
+        if state != c["state"]:
+            color = {"running": C_RUN, "done": C_OK, "failed": C_BAD}[state]
+            c["frame"].setStyleSheet(
+                "QFrame#card{background-color:rgba(32,36,46,0.92);border-radius:12px;"
+                f"border-left:3px solid {rgba(color)};}}")
+            c["dot"].setStyleSheet(f"background-color:{rgba(color)};border-radius:5px;")
+            c["state"] = state
+        st = "執行中" if not j["done"] else j["status"]
+        c["status"].setText(f"{st} · {fmt(j['elapsed'])}")
+        tl = (j.get("tail") or "").splitlines()
+        c["tail"].setText(tl[-1][:80] if tl else "")
+
+    def _breathe(self):
+        self._pulse_on = not self._pulse_on
+        a = 1.0 if self._pulse_on else 0.35
+        for c in self.cards.values():
+            if c["state"] == "running":
+                c["dot"].setStyleSheet(f"background-color:{rgba(C_RUN, a)};border-radius:5px;")
 
 
-tick()
-root.mainloop()
+def main():
+    app = QApplication(sys.argv)
+    app.setFont(QFont("Microsoft JhengHei UI", 9))
+    port = sys.argv[1] if len(sys.argv) > 1 else "8787"
+    win = Dashboard(port)
+    win.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
