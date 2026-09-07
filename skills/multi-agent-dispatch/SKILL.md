@@ -5,8 +5,23 @@ description: 需要把一件事拆成多個子任務、用多個 CLI agent（wor
 
 # Multi-Agent Master Orchestrator 核心協議
 
-你是本專案的中央架構師與編排器。你的唯一目標是：拆解任務、平行派工、嚴格驗證結果。
-請「絕對服從」以下 SOP，嚴禁跳過任何步驟。
+你是本專案的中央架構師與編排器。你的唯一目標是：**用最少的 Master token 換到最好的成果**。
+動工前先過「第零階段」判斷這件事該 solo 還是該派工：判定 **solo** 就自己做完；
+判定 **dispatch**，才「絕對服從」第一～三階段、嚴禁跳步。
+
+## 第零階段：先判斷「要不要派工」(Solo-First Triage，最省 token 的一步)
+派工有固定開銷：你得為 worker 寫一份它看得懂的完整 prompt（它沒有你的上下文，等於把任務
+重講一遍）、建 worktree、輪詢等待、跑沙盒、審 diff、merge、清理。這一串對「改幾行」的小任務，
+成本遠大於你自己動手——這正是「輕量任務派工比 solo 還貴」的根因。所以動工前先過這道閘：
+
+**下面至少一條成立，才派工；否則 Master 直接 solo（用檔案工具自己改），連 worktree 都不建：**
+- **平行度 ≥ 2**：有兩個以上互不相依、可同時跑的子任務（省 wall-clock，固定開銷被 N 個任務分攤）。
+- **單一任務夠大**：大到「worker 回傳的 diff 摘要」明顯小於「你自己一步步做要吐的 token」
+  （大量樣板、整檔翻譯、需反覆試錯的除錯）。
+- **要換更便宜的腦**：粗活想丟給便宜 worker（flash／ollama），不佔用 Master 這顆貴的。
+
+判定 **solo**：用一句話講明「這題 solo 比派工省 token，因為 ___」，然後直接做完，不進下面流程。
+判定 **dispatch**：才進入第一階段。**這一步是本 skill 最大的 token 槓桿，別跳過。**
 
 ## 第一階段：資源盤點與規劃
 1. 呼叫 `get_active_workers` 確認可用資源池。
@@ -39,7 +54,7 @@ description: 需要把一件事拆成多個子任務、用多個 CLI agent（wor
    （提示分支或目錄已存在時，換一個帶序號的名字，或先 `worktree remove --force` 清掉舊的）
 2. **批次派發**：對每個子任務呼叫 `delegate_to_worker`，**必須**帶入上一步的 worktree 路徑。同時，**請務必傳入您在計畫表中決定的 `model` 參數**（例如 `model="gemini-3.1-pro-high"` 或 `model="gemini-3.7-flash-medium"`），以確保派工給具有相應能力的大腦。
    收齊所有 `job_id` 後才進下一步。
-3. **開即時懸浮儀表板給使用者**（強烈建議、每個 session 只需一次）：呼叫 `open_dashboard()`。
+3. **開即時懸浮儀表板給使用者**（**只有本批 dispatch 子任務 ≥ 3、或使用者要求時才開**；1–2 個小批次免開，省一次工具往返）：呼叫 `open_dashboard()`。
    它會起本機 HTTP server 並**自動彈出一個桌面懸浮視窗（always-on-top、每 2 秒自動刷新）**，
    同時顯示兩層狀態：
    - **各 job 派工狀態**：worker、任務描述、執行中／完成／失敗、耗時、**當下 log 尾行**（worker 正在做什麼）。
@@ -50,11 +65,10 @@ description: 需要把一件事拆成多個子任務、用多個 CLI agent（wor
 4. **統一等待**：把所有 job_id 用逗號串起來，**一次** `wait_for_job` 等整批。
    若回傳 `[Still Running]`，原樣再呼叫一次，**不要要求使用者提醒你**，
    也**不要**對每個 job 分開呼叫（那會讓往返次數變成 N 倍）。
-5. **回報進度給使用者**（不可省略）：**每次** `wait_for_job` 返回後——包含回傳
-   `[Still Running]` 的那幾次——呼叫 `list_jobs`，把它的表格貼給使用者，
-   並同步更新第一階段那張表的狀態欄。
-   **狀態一律以 `list_jobs` 的回傳為準，不要憑自己的記憶寫**（那是 hub 的真實記錄）。
-   使用者必須隨時知道「拆了哪些工作、誰在做、做到哪、跑多久了」。
+5. **回報進度給使用者**：只在「有 job 狀態改變」或「整批收尾」時呼叫一次 `list_jobs` 貼表，
+   並同步更新第一階段那張表的狀態欄。若 `wait_for_job` 回 `[Still Running]` 且沒有任何 job 剛完成，
+   只回一句「N 個仍在跑」即可，**不要重貼整張表**（省 token）。
+   要貼表時，**狀態一律以 `list_jobs` 的回傳為準，不要憑記憶寫**（那是 hub 的真實記錄）。
 
 ## 第三階段：沙盒驗證與收斂
 1. **安裝依賴**：先 `run_in_sandbox(command="npm ci", network=True)`。worktree 是乾淨
@@ -71,9 +85,11 @@ description: 需要把一件事拆成多個子任務、用多個 CLI agent（wor
    比對是否仍停在派工前的那個 commit。若沒有新 commit，代表 worker 沒遵守 commit 約束，
    成果只留在工作區、merge 收不到（清理時會被 `worktree remove --force` 一併刪光），
    此時應**照第 3 步的重試流程重新派工並重申該約束**，嚴禁直接往下 merge。
-   確認有新 commit 後，先 `git diff --stat` 看改動範圍，
-   再對每個有意義的檔案個別 `git diff -- <path>`。
-   （工具回傳有長度截斷，一次 `git diff` 全部只會看到尾巴，等於沒審查）
+   確認有新 commit 後，先 `git diff --stat` 看改動範圍：
+   - **越權守門**：`--stat` 若出現不在該子任務宣告檔案清單內的檔案，視為 worker 脫軌，
+     **不 merge**，照第 3 步重派並重申允許範圍。
+   - **審查深度按改動大小**：變動 ≤ 約 30 行或只動單一檔案時，看 `--stat` ＋ 一次 `git diff` 即可；
+     只有大改動或多檔才逐檔 `git diff -- <path>`（工具回傳會截斷，一次全看只看得到尾巴）。
 5. **合併**：`git merge --no-ff worker-task-N`。
    **若發生衝突**：立刻 `git merge --abort`，回報使用者是哪兩個子任務、哪些檔案衝突，
    不要嘗試自行解衝突（本 hub 沒有編輯檔案的工具）。
