@@ -1,16 +1,14 @@
-"""桌面懸浮儀表板 —— B 方案原型（PySide6 / Qt）。
+"""桌面懸浮儀表板（PySide6 / Qt）。
 
-與 A 方案（Tkinter + ctypes，見 master/A 分支）同契約、可互換：
+接收 hub 狀態並即時顯示：
     python dashboard_float.py <port>
 每 2 秒 poll http://127.0.0.1:<port>/api，顯示 hub 自身狀態與各 job 卡片。
 
-為什麼是 Qt：Tkinter 沒有 per-pixel alpha 合成，做真磨砂得靠 -transparentcolor
-鏤空（文字毛邊、細縫點擊穿透）。Qt 原生合成 → 面板本身可半透明、文字清晰、
-無穿透、可整窗拖曳，且 macOS/Linux 也能有同款毛玻璃。代價：多一個重相依（PySide6，
-數十 MB Qt），打破本 repo「零第三方相依」的設計——所以這是「若選 B」的原型，
-預設仍走 A。
+Qt 原生 per-pixel alpha 合成：面板半透明磨砂、文字清晰無鋸齒、無細縫點擊穿透、
+整窗可自由拖曳，Win11 支援 DWM Acrylic 毛玻璃。右上角附 ✕ 按鈕，亦支援按 Esc
+或滑鼠右鍵選單快速關閉。
 
-執行前需：pip install PySide6
+相依套件：pip install PySide6
 """
 import json
 import os
@@ -23,7 +21,7 @@ try:
     from PySide6.QtWidgets import (QApplication, QFrame, QHBoxLayout, QLabel,
                                    QMenu, QPushButton, QScrollArea, QVBoxLayout, QWidget)
 except ImportError:
-    sys.stderr.write("B 方案原型需要 PySide6：pip install PySide6\n")
+    sys.stderr.write("桌面儀表板需要 PySide6：pip install PySide6\n")
     sys.exit(1)
 
 # Apple 系統色（執行=琥珀 / 完成=綠 / 失敗=紅）

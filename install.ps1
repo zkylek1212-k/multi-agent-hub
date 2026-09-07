@@ -85,16 +85,16 @@ foreach ($c in @(
 if (-not $pyExe) { Die "找不到 Python 3.10+。請安裝 https://www.python.org/downloads/ 並勾選 Add to PATH。" }
 
 # --- 2. 相依套件 -------------------------------------------------------
-Step 2 "安裝 Python 相依 (mcp[cli])"
+Step 2 "安裝 Python 相依 (mcp[cli] + PySide6)"
 if ($SkipDeps) {
     Warn "已指定 -SkipDeps，略過"
 } else {
-    $r = Invoke-Native { & $pyExe @pyArgs -m pip install --quiet --no-warn-script-location --upgrade "mcp[cli]" }
+    $r = Invoke-Native { & $pyExe @pyArgs -m pip install --quiet --no-warn-script-location --upgrade "mcp[cli]" "PySide6" }
     if ($r.Code -ne 0) {
         Write-Host $r.Out
-        Die "pip install 失敗。若是權限問題，改跑：$pyExe $($pyArgs -join ' ') -m pip install --user `"mcp[cli]`""
+        Die "pip install 失敗。若是權限問題，改跑：$pyExe $($pyArgs -join ' ') -m pip install --user `"mcp[cli]`" `"PySide6`""
     }
-    OK "mcp[cli] 已安裝"
+    OK "mcp[cli] 與 PySide6 已安裝"
 }
 
 # --- 3. 偵測 Worker ----------------------------------------------------

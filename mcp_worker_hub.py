@@ -543,7 +543,7 @@ class _DashHandler(BaseHTTPRequestHandler):
 
 
 def _launch_float(port: int) -> str:
-    """彈出桌面懸浮視窗（Tkinter，always-on-top）。回傳狀態字串。"""
+    """彈出桌面懸浮視窗（PySide6 / Qt，always-on-top）。回傳狀態字串。"""
     script = Path(__file__).with_name("dashboard_float.py")
     if not script.is_file():
         return "（找不到 dashboard_float.py，改用瀏覽器開 URL）"

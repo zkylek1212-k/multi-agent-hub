@@ -75,7 +75,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 **它做了 8 件事**：
 
 1. 找 Python 3.10+（依序試 `py -3` → `python` → `python3`）
-2. `pip install mcp[cli]`
+2. `pip install "mcp[cli]" "PySide6"`
 3. 偵測 4 種 Worker + `git` + `docker`，解析出**真正的 `.exe` 路徑**
 4. 沒有 git repo 就 `git init` 並建立初始 commit（worktree 需要至少一個 commit）
 5. 寫 `.gitignore`
@@ -93,7 +93,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1
 沒有 `.cmd` shim 問題，所以不需要 `HUB_BIN_*`，手動四步即可：
 
 ```bash
-python3 -m pip install "mcp[cli]"
+python3 -m pip install "mcp[cli]" "PySide6"
 ```
 
 ```bash
@@ -159,7 +159,7 @@ claude mcp list
 | 檔案 | 進版控 | 說明 |
 | --- | --- | --- |
 | `mcp_worker_hub.py` | ✅ | MCP Server 本體，8 個工具（含 `open_dashboard` 即時儀表板） |
-| `dashboard_float.py` | ✅ | 桌面懸浮儀表板（Tkinter，純 stdlib）；`open_dashboard()` 會彈出它 |
+| `dashboard_float.py` | ✅ | 桌面懸浮儀表板（PySide6 / Qt 原生毛玻璃）；`open_dashboard()` 會彈出它 |
 | `skills/multi-agent-dispatch/SKILL.md` | ✅ | 派工 SOP 與模型菜單的**唯一真實來源**；plugin 隨附自動同步，`install.ps1` 也從它生成 `CLAUDE.md` |
 | `test_hub.py` | ✅ | 自我測試，`py -3 test_hub.py` 可單獨跑 |
 | `install.ps1` | ✅ | 部署腳本（**必須 UTF-8 with BOM**，見常見問題） |
@@ -209,7 +209,7 @@ npm 全域安裝只給 `.cmd` shim，走 cmd.exe 會竄改參數並有 8191 字�
 依序查三件事：
 
 1. `/plugin` 確認 `multi-agent-hub` 是 enabled（裝完通常要重開 Claude Code）。
-2. **最常見**：還沒裝 Python 相依。plugin 只帶檔案，`mcp[cli]` 要自己裝。跑這行（會自動找到 plugin 目錄）：
+2. **最常見**：還沒裝 Python 相依。plugin 只帶檔案，`mcp[cli]` 與 `PySide6` 要自己裝。跑這行（會自動找到 plugin 目錄）：
 
    ```powershell
    powershell -ExecutionPolicy Bypass -File (Get-ChildItem "$env:USERPROFILE\.claude\plugins\cache\multi-agent-hub\multi-agent-hub\*\install.ps1" | Sort-Object FullName -Descending | Select-Object -First 1).FullName -DepsOnly
