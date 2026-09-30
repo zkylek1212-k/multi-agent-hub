@@ -1,6 +1,6 @@
 {
   "name": "multi-agent-hub",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Multi-agent dispatch skill and local agent-hub MCP server.",
   "author": {
     "name": "zkylek1212-k",
