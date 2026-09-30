@@ -66,6 +66,28 @@ Success check: `/mcp` shows `agent-hub` as connected, and `multi-agent-dispatch`
 
 > ⚠️ **The plugin path currently only supports Windows** — `.mcp.json` launches via `py -3` (the Windows Python launcher). For macOS / Linux, use path (b) below and manually write `.mcp.json` following [INSTALL.md §3](INSTALL.md).
 
+### Codex plugin
+
+Codex users can install the skill and MCP server together from this repository's marketplace:
+
+```powershell
+codex plugin marketplace add zkylek1212-k/multi-agent-hub
+codex plugin add multi-agent-hub@multi-agent-hub
+```
+
+The MCP server requires Python 3.10+ and the `mcp[cli]` and `PySide6` packages. After installing
+the plugin, run its dependency setup once:
+
+```powershell
+$codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
+$installer = Get-ChildItem "$codexHome\plugins\cache\multi-agent-hub\multi-agent-hub\*\install.ps1" |
+  Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+powershell -ExecutionPolicy Bypass -File $installer -DepsOnly
+```
+
+Restart Codex after setup. This plugin configuration uses the Windows `py -3` launcher; on
+macOS or Linux, use the standalone installation path below.
+
 ### (b) Clone and run the script directly
 
 On Windows, after cloning, run:

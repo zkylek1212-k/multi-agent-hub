@@ -1,0 +1,22 @@
+{
+  "name": "multi-agent-hub",
+  "version": "0.1.2",
+  "description": "Multi-agent dispatch skill and local agent-hub MCP server.",
+  "author": {
+    "name": "zkylek1212-k",
+    "url": "https://github.com/zkylek1212-k"
+  },
+  "homepage": "https://github.com/zkylek1212-k/multi-agent-hub",
+  "repository": "https://github.com/zkylek1212-k/multi-agent-hub",
+  "license": "MIT",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.codex.json",
+  "interface": {
+    "displayName": "Multi-Agent Hub",
+    "shortDescription": "Dispatch work to isolated CLI workers.",
+    "longDescription": "Package the multi-agent-dispatch skill with the local agent-hub MCP server for Codex.",
+    "developerName": "zkylek1212-k",
+    "category": "Productivity",
+    "capabilities": ["Skills", "MCP"]
+  }
+}
