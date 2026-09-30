@@ -1,0 +1,21 @@
+{
+  "name": "multi-agent-hub",
+  "interface": {
+    "displayName": "Multi-Agent Hub"
+  },
+  "plugins": [
+    {
+      "name": "multi-agent-hub",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/zkylek1212-k/multi-agent-hub.git",
+        "ref": "master"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

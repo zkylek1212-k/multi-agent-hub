@@ -76,6 +76,26 @@ powershell -ExecutionPolicy Bypass -File (Get-ChildItem "$env:USERPROFILE\.claud
 > ⚠️ **plugin 路徑目前只支援 Windows** —— `.mcp.json` 用 `py -3`（Windows Python launcher）啟動。
 > macOS / Linux 請走下面的 (b)，並照 [INSTALL.md §3](INSTALL.md) 手動寫 `.mcp.json`。
 
+### Codex plugin
+
+Codex 可從本 repo 的 marketplace 一次安裝 dispatch skill 和 agent-hub MCP：
+
+```powershell
+codex plugin marketplace add zkylek1212-k/multi-agent-hub
+codex plugin add multi-agent-hub@multi-agent-hub
+```
+
+安裝後需先裝 Python 3.10+、`mcp[cli]` 和 `PySide6` 相依：
+
+```powershell
+$codexHome = if ($env:CODEX_HOME) { $env:CODEX_HOME } else { Join-Path $env:USERPROFILE '.codex' }
+$installer = Get-ChildItem "$codexHome\plugins\cache\multi-agent-hub\multi-agent-hub\*\install.ps1" |
+  Sort-Object FullName -Descending | Select-Object -First 1 -ExpandProperty FullName
+powershell -ExecutionPolicy Bypass -File $installer -DepsOnly
+```
+
+完成後重開 Codex。此 plugin 使用 Windows 的 `py -3` launcher；macOS / Linux 請使用下方的 standalone 安裝方式。
+
 ### (b) clone 後直接跑腳本
 
 Windows，clone 完一行：
