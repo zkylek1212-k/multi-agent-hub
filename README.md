@@ -88,6 +88,21 @@ powershell -ExecutionPolicy Bypass -File $installer -DepsOnly
 Restart Codex after setup. This plugin configuration uses the Windows `py -3` launcher; on
 macOS or Linux, use the standalone installation path below.
 
+### Antigravity
+
+Clone the repository into your global Antigravity plugins directory:
+
+```powershell
+git clone https://github.com/zkylek1212-k/multi-agent-hub.git ~/.gemini/config/plugins/multi-agent-hub
+powershell -ExecutionPolicy Bypass -File ~/.gemini/config/plugins/multi-agent-hub/install.ps1 -DepsOnly
+```
+
+To register `agent-hub` as a global MCP server in Antigravity:
+
+```powershell
+agy mcp add --env PYTHONIOENCODING=utf-8 agent-hub py -3 ~/.gemini/config/plugins/multi-agent-hub/mcp_worker_hub.py
+```
+
 ### (b) Clone and run the script directly
 
 On Windows, after cloning, run:

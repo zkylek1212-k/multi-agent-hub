@@ -96,6 +96,21 @@ powershell -ExecutionPolicy Bypass -File $installer -DepsOnly
 
 完成後重開 Codex。此 plugin 使用 Windows 的 `py -3` launcher；macOS / Linux 請使用下方的 standalone 安裝方式。
 
+### Antigravity
+
+複製到 Antigravity 全域 plugins 目錄並執行相依安裝：
+
+```powershell
+git clone https://github.com/zkylek1212-k/multi-agent-hub.git ~/.gemini/config/plugins/multi-agent-hub
+powershell -ExecutionPolicy Bypass -File ~/.gemini/config/plugins/multi-agent-hub/install.ps1 -DepsOnly
+```
+
+若要將 `agent-hub` 登錄為 Antigravity 全域 MCP 伺服器：
+
+```powershell
+agy mcp add --env PYTHONIOENCODING=utf-8 agent-hub py -3 ~/.gemini/config/plugins/multi-agent-hub/mcp_worker_hub.py
+```
+
 ### (b) clone 後直接跑腳本
 
 Windows，clone 完一行：
