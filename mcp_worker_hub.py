@@ -21,6 +21,7 @@ import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from mcp.types import ToolAnnotations
 
 # mcp 2.0 把 FastMCP 改名成 MCPServer。兩者的 .tool() 與 .run(transport=) 相同，
 # 所以吃哪個版本都能跑，不必 pin mcp<2。
@@ -28,6 +29,11 @@ try:
     from mcp.server.fastmcp import FastMCP as _Server      # mcp 1.x
 except ModuleNotFoundError:
     from mcp.server.mcpserver import MCPServer as _Server  # mcp 2.x
+
+READ_ONLY_TOOL = ToolAnnotations(
+    readOnlyHint=True,
+    destructiveHint=False,
+)
 
 # --- Worker 指令表 -----------------------------------------------------
 # prompt 不放在命令列上（見下方 HANDOFF），這裡只放固定旗標。
@@ -195,7 +201,7 @@ def _summarize_output(out: str) -> str:
 
 
 # --- Tools ------------------------------------------------------------
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_TOOL)
 async def get_active_workers() -> str:
     """回報本次啟用的 Worker 與實際執行檔。不可派發給不在名單上的 Worker。"""
     lines = [f"  {w}: {_RESOLVED[w][0]}" for w in ACTIVE]
@@ -299,7 +305,7 @@ async def delegate_to_worker(
     return f"[Job Started] ID={job_id} worker={worker_type} dir={working_dir}"
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_TOOL)
 async def wait_for_job(job_ids: str, timeout_s: int = WAIT_SLICE) -> str:
     """等待任務結束。job_ids 可用逗號分隔，一次等一整批（建議這樣用）。
 
@@ -327,7 +333,7 @@ async def wait_for_job(job_ids: str, timeout_s: int = WAIT_SLICE) -> str:
         f"[{i}] {jobs[i]['state']}\n(完整 log: {jobs[i]['log']})" for i in ids)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_TOOL)
 async def list_jobs() -> str:
     """列出本次啟動以來所有 job 的狀態表，給使用者看的進度總覽。
 
@@ -350,7 +356,7 @@ async def list_jobs() -> str:
     return "\n".join(rows)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY_TOOL)
 async def check_job_status(job_id: str) -> str:
     """非阻塞查詢狀態。"""
     j = jobs.get(job_id)

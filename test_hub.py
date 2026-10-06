@@ -28,6 +28,14 @@ def main():
     assert h.ACTIVE is not None, "ACTIVE 未初始化"
     print(f"[1] active workers: {h.ACTIVE or '(無，檢查 PATH 或 HUB_BIN_*)'}")
 
+    tools = {tool.name: tool for tool in asyncio.run(h.mcp.list_tools())}
+    for name in ("get_active_workers", "wait_for_job", "list_jobs", "check_job_status"):
+        annotations = tools[name].annotations
+        read_only = getattr(annotations, "read_only_hint",
+                            getattr(annotations, "readOnlyHint", None))
+        assert read_only is True, f"{name} 缺少 readOnlyHint"
+    print("[1b] read-only tool annotations OK")
+
     # 2. list_jobs 空表
     empty = asyncio.run(h.list_jobs())
     assert "尚未派出" in empty, empty
