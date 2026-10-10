@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     Multi-Agent ADE 派工中心 — 一鍵部署（Windows / PowerShell 5.1+）
 
@@ -410,3 +410,11 @@ if ($AsCodex -and -not $DepsOnly) {
     Write-Host "2) AGENTS.md 已生成在本目錄，Codex 會自動讀它當 Master SOP。" -ForegroundColor White
     Write-Host "   在本目錄啟動 codex，確認它連上 agent-hub 後呼叫 get_active_workers。" -ForegroundColor White
 }
+
+if (Get-Command agy -ErrorAction SilentlyContinue) {
+    Write-Host "`n--- Antigravity Master 設定 ------------------------------------" -ForegroundColor Cyan
+    Write-Host "若要將 agent-hub 註冊為 Antigravity 全域 MCP 伺服器，請執行：" -ForegroundColor White
+    $agyArgs = ($pyArgs + @($hubPyPath)) -join ' '
+    Write-Host "  agy mcp add --env PYTHONIOENCODING=utf-8 agent-hub $pyExe $agyArgs" -ForegroundColor Gray
+}
+
