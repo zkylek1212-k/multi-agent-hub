@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     Multi-Agent ADE 派工中心 — 一鍵部署（Windows / PowerShell 5.1+）
 
