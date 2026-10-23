@@ -1,0 +1,8 @@
+{
+  "name": "multi-agent-hub",
+  "version": "0.1.3",
+  "description": "MCP-based multi-agent dispatch hub: a Master agent decomposes a task, dispatches subtasks in parallel to multiple CLI workers (Claude Code, Codex, Antigravity, Ollama), and each worker runs isolated in its own git worktree. Results are verified in a Docker sandbox before being merged back to the main branch.",
+  "author": {
+    "name": "zkylek1212-k"
+  }
+}

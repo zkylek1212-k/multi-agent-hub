@@ -7,7 +7,8 @@
       "env": {
         "HUB_WORKERS": "",
         "HUB_LOG_DIR": "${CLAUDE_PLUGIN_ROOT}/.hub_logs",
-        "HUB_WAIT_SLICE": "300"
+        "HUB_WAIT_SLICE": "300",
+        "PYTHONIOENCODING": "utf-8"
       }
     }
   }
