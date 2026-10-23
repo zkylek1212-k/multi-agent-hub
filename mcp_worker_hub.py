@@ -283,6 +283,11 @@ async def delegate_to_worker(
                 if model:
                     cmd_args.insert(1, "--model")   # claude 讀 --model 旗標，
                     cmd_args.insert(2, model)       # 不是 CLAUDE_MODEL 環境變數
+            elif worker_type == "codex_cli":
+                cmd_args = [*_RESOLVED[worker_type]]
+                if model:
+                    cmd_args.extend(["--model", model])
+                cmd_args.append(HANDOFF)
             else:
                 cmd_args = [*_RESOLVED[worker_type], HANDOFF]
 
