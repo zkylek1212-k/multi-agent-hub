@@ -6,6 +6,7 @@
 import asyncio
 import os
 import sys
+import tempfile
 
 import mcp_worker_hub as h
 
@@ -21,6 +22,47 @@ def _fake_job(jid, worker, desc, state, done, elapsed=None):
     }
     if elapsed is not None and done:
         h.jobs[jid]["elapsed"] = elapsed
+
+
+async def _check_worker_model_forwarding():
+    """Exercise dispatch without starting a CLI or making a model request."""
+    calls = []
+    saved = h.ACTIVE, h._RESOLVED, h.LOG_DIR, h.jobs, h._exec
+
+    async def capture(argv, **kwargs):
+        calls.append(argv)
+        return 0, "ok"
+
+    try:
+        with tempfile.TemporaryDirectory() as directory:
+            h.ACTIVE = ["codex_cli", "agy_cli", "claude_cli"]
+            h._RESOLVED = {name: list(h.WORKER_CMDS[name]) for name in h.ACTIVE}
+            h.LOG_DIR = h.Path(directory) / "logs"
+            h.LOG_DIR.mkdir()
+            h.jobs = {}
+            h._exec = capture
+            for worker, model in [("codex_cli", "test-model"), ("codex_cli", None),
+                                  ("agy_cli", "test-model"), ("claude_cli", "test-model")]:
+                result = await h.delegate_to_worker("test prompt", worker, directory, model=model)
+                assert result.startswith("[Job Started]"), result
+                await asyncio.gather(*list(h._tasks))
+                argv = calls[-1]
+                assert argv[-1] == h.HANDOFF, argv
+                if model:
+                    assert "--model" in argv, argv
+                    position = argv.index("--model")
+                    assert argv[position + 1] == model, argv
+                    assert argv.count("--model") == 1, argv
+                else:
+                    assert "--model" not in argv, argv
+                if worker == "codex_cli":
+                    expected = [*h.WORKER_CMDS[worker]]
+                    if model:
+                        expected += ["--model", model]
+                    assert argv == [*expected, h.HANDOFF], argv
+                assert not (h.Path(directory) / h.PROMPT_FILE).exists()
+    finally:
+        h.ACTIVE, h._RESOLVED, h.LOG_DIR, h.jobs, h._exec = saved
 
 
 def main():
@@ -59,6 +101,9 @@ def main():
     assert r.startswith("[Reject]"), r
     print("[4] 未啟用 worker 已拒絕 OK")
 
+    asyncio.run(_check_worker_model_forwarding())
+    print("[4b] worker model forwarding and default fallback OK")
+
     # 5. 未知 job id
     r = asyncio.run(h.wait_for_job("deadbeef"))
     assert "查無此 job" in r, r
@@ -84,7 +129,6 @@ def main():
     print("[6b] _summarize_output 抽 status+response OK")
 
     # 6c. _pick_image：依 worktree 內容選容器
-    import tempfile
     with tempfile.TemporaryDirectory() as d:
         assert h._pick_image(d) == "node:22-alpine", "空目錄應回 node"
         (h.Path(d) / "a.py").write_text("x", encoding="utf-8")
