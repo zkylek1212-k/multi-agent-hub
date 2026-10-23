@@ -61,6 +61,16 @@ async def _check_worker_model_forwarding():
                         expected += ["--model", model]
                     assert argv == [*expected, h.HANDOFF], argv
                 assert not (h.Path(directory) / h.PROMPT_FILE).exists()
+
+            # effort：codex 走 -c model_reasoning_effort，claude 走 --effort
+            for worker, flag in [("codex_cli", ["-c", "model_reasoning_effort=high"]),
+                                 ("claude_cli", ["--effort", "high"])]:
+                await h.delegate_to_worker("test prompt", worker, directory,
+                                           model="test-model", effort="high")
+                await asyncio.gather(*list(h._tasks))
+                argv = calls[-1]
+                i = argv.index(flag[0])
+                assert argv[i:i + 2] == flag and argv[-1] == h.HANDOFF, argv
     finally:
         h.ACTIVE, h._RESOLVED, h.LOG_DIR, h.jobs, h._exec = saved
 

@@ -47,7 +47,7 @@ Master Agent 透過 MCP 工具依序執行以下 6 步：
 呼叫 `delegate_to_worker` 派工給指定 Worker：
 - `worker_type`: `"agy_cli"`
 - `working_dir`: `"C:/proj/wt-task-1"`
-- `model`: `"gemini-3.7-flash-medium"`
+- `model`: `"gemini-3.8-flash-high"`
 - `prompt`: `"新增 hello.txt 寫入 OK。請將說明寫入 NOTES.md，完成後務必 git add -A 並 git commit。"`
 
 ### Step 4: 開啟即時儀表板

@@ -27,12 +27,13 @@ description: 需要把一件事拆成多個子任務、用多個 CLI agent（wor
 1. 呼叫 `get_active_workers` 確認可用資源池。
 2. 用 `<plan>` 標籤輸出任務拆解，標明依賴關係，並標明**每個子任務會動到哪些檔案**以及**適用的 Model**。
    **同一批平行的子任務，檔案清單不得重疊**（重疊就改成序列執行，否則後面必然 merge 衝突）。
-   ⚠️ **嚴格限制：派工模型只能從以下三組「最佳派工組合 (Menu)」中挑選，不得自行發明型號**：
+   ⚠️ **嚴格限制：派工模型只能從以下四組「最佳派工組合 (Menu)」中挑選，不得自行發明型號**：
+   - 【頂級架構】 `worker: claude_cli`, `model: claude-opus-5-5`, `effort: high` (適用：跨模組架構重構、整合層、需要嚴謹審查的改動)
+   - 【頂級邏輯】 `worker: codex_cli`, `model: gpt-6.1-sol`, `effort: high` (適用：核心演算法、困難除錯、後端邏輯)
    - 【頂級邏輯】 `worker: agy_cli`, `model: gemini-3.1-pro-high` (適用：架構重構、核心邏輯、困難除錯)
-   - 【敏捷主力】 `worker: agy_cli`, `model: gemini-3.8-flash-high` (適用：一般功能開發、UI、串接 API)
-   - 【預設苦工】 `worker: agy_cli`, `model: gemini-3.7-flash-medium` (適用：產生樣板、寫測資、翻譯、重複性工作；不確定時的預設)
+   - 【敏捷主力】 `worker: agy_cli`, `model: gemini-3.8-flash-high` (適用：一般功能開發、UI、串接 API、樣板、測資、翻譯；不確定時的預設)
    <plan>
-   [子任務 1] 負責人: agy_cli | 模型: gemini-3.7-flash-medium | 依賴: 無 | 檔案: src/models/* | 原因: 大量樣板生成
+   [子任務 1] 負責人: agy_cli | 模型: gemini-3.8-flash-high | 依賴: 無 | 檔案: src/models/* | 原因: 大量樣板生成
    [子任務 2] 負責人: agy_cli | 模型: gemini-3.8-flash-high | 依賴: 無 | 檔案: src/auth/* | 原因: 高階邏輯重構
    [子任務 3] 負責人: agy_cli | 模型: gemini-3.1-pro-high | 依賴: 1, 2 | 檔案: src/app.py | 原因: 整合層
    </plan>
@@ -40,7 +41,7 @@ description: 需要把一件事拆成多個子任務、用多個 CLI agent（wor
 
    | # | 子任務 | 負責 Worker | 模型 | 動到的檔案 | 依賴 | 狀態 |
    | --- | --- | --- | --- | --- | --- | --- |
-   | 1 | 產生 model 樣板 | agy_cli | gemini-3.7-flash-medium | src/models/* | 無 | 待派工 |
+   | 1 | 產生 model 樣板 | agy_cli | gemini-3.8-flash-high | src/models/* | 無 | 待派工 |
    | 2 | 重構 auth 邏輯 | agy_cli | gemini-3.8-flash-high | src/auth/* | 無 | 待派工 |
    | 3 | 整合層 | agy_cli | gemini-3.1-pro-high | src/app.py | 1, 2 | 待派工 |
 
@@ -52,7 +53,7 @@ description: 需要把一件事拆成多個子任務、用多個 CLI agent（wor
    args = `worktree add -b worker-task-N <絕對路徑>`，repo = 主專案路徑。
    ⚠️ 所有路徑（含 `working_dir` 與 worktree 路徑）**一律強制使用絕對路徑**，嚴禁 `../`。
    （提示分支或目錄已存在時，換一個帶序號的名字，或先 `worktree remove --force` 清掉舊的）
-2. **批次派發**：對每個子任務呼叫 `delegate_to_worker`，**必須**帶入上一步的 worktree 路徑。同時，**請務必傳入您在計畫表中決定的 `model` 參數**（例如 `model="gemini-3.1-pro-high"` 或 `model="gemini-3.7-flash-medium"`），以確保派工給具有相應能力的大腦。
+2. **批次派發**：對每個子任務呼叫 `delegate_to_worker`，**必須**帶入上一步的 worktree 路徑。同時，**請務必傳入您在計畫表中決定的 `model` 參數**（例如 `model="gemini-3.1-pro-high"`）；claude_cli／codex_cli 另需帶 `effort="high"`（例如 `model="gpt-6.1-sol", effort="high"`），以確保派工給具有相應能力的大腦。
    收齊所有 `job_id` 後才進下一步。
 3. **開即時懸浮儀表板給使用者**（**只有本批 dispatch 子任務 ≥ 3、或使用者要求時才開**；1–2 個小批次免開，省一次工具往返）：呼叫 `open_dashboard()`。
    它會起本機 HTTP server 並**自動彈出一個桌面懸浮視窗（always-on-top、每 2 秒自動刷新）**，

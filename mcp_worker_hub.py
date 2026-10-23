@@ -233,8 +233,12 @@ async def delegate_to_worker(
     working_dir: str,
     timeout_s: int = 1800,
     model: str | None = None,
+    effort: str | None = None,
 ) -> str:
     """非同步派工給 Worker。working_dir 必須是先前建立的 worktree 絕對路徑。
+
+    effort 只對 claude_cli（--effort）與 codex_cli（model_reasoning_effort）有效；
+    agy_cli 的 effort 已寫在 model 名稱裡。
 
     prompt 會寫成 worktree 內的 .hub_prompt.md，命令列只傳一句固定英文指示。
     這樣 prompt 不受 shell 解析影響，也不受命令列長度限制。
@@ -283,10 +287,14 @@ async def delegate_to_worker(
                 if model:
                     cmd_args.insert(1, "--model")   # claude 讀 --model 旗標，
                     cmd_args.insert(2, model)       # 不是 CLAUDE_MODEL 環境變數
+                if effort:
+                    cmd_args[1:1] = ["--effort", effort]
             elif worker_type == "codex_cli":
                 cmd_args = [*_RESOLVED[worker_type]]
                 if model:
                     cmd_args.extend(["--model", model])
+                if effort:   # exec 子指令吃 -c 覆寫 config.toml
+                    cmd_args.extend(["-c", f"model_reasoning_effort={effort}"])
                 cmd_args.append(HANDOFF)
             else:
                 cmd_args = [*_RESOLVED[worker_type], HANDOFF]
@@ -306,7 +314,8 @@ async def delegate_to_worker(
     t = asyncio.create_task(run_task())
     _tasks.add(t)
     t.add_done_callback(_tasks.discard)
-    _hub_event(f"派工 job {job_id} → {worker_type}" + (f" / {model}" if model else ""))
+    _hub_event(f"派工 job {job_id} → {worker_type}" + (f" / {model}" if model else "")
+               + (f" / {effort}" if effort else ""))
     return f"[Job Started] ID={job_id} worker={worker_type} dir={working_dir}"
 
 
